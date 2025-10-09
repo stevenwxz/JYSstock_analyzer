@@ -1,0 +1,67 @@
+# 环境变量和敏感信息
+.env
+*.env
+!.env.example
+
+# Python 字节码
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 日志文件
+*.log
+logs/*.log
+logs/*.json
+
+# 数据缓存
+data_cache/
+*.cache
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 分析结果（可选，看是否要上传示例结果）
+# logs/
+# *.md
+
+# 依赖目录
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 系统文件
+Thumbs.db
+Desktop.ini
