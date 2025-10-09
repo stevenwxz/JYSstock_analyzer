@@ -7,6 +7,18 @@ import sys
 import os
 from datetime import datetime
 
+# 禁用代理 - 访问国内网站不需要代理
+os.environ['NO_PROXY'] = '*'
+os.environ['no_proxy'] = '*'
+if 'HTTP_PROXY' in os.environ:
+    del os.environ['HTTP_PROXY']
+if 'HTTPS_PROXY' in os.environ:
+    del os.environ['HTTPS_PROXY']
+if 'http_proxy' in os.environ:
+    del os.environ['http_proxy']
+if 'https_proxy' in os.environ:
+    del os.environ['https_proxy']
+
 # 添加src目录到Python路径
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -86,7 +98,7 @@ def main():
 
                 for stock in selected_stocks:
                     print(f"#{stock.get('rank', 0)} {stock.get('name', '')} ({stock.get('code', '')})")
-                    print(f"   价格: ¥{stock.get('price', 0):.2f}")
+                    print(f"   价格: {stock.get('price', 0):.2f}元")
                     print(f"   涨跌幅: {stock.get('change_pct', 0):+.2f}%")
                     print(f"   PE: {stock.get('pe_ratio', 0):.2f}")
                     print(f"   20日动量: {stock.get('momentum_20d', 0):.2f}%")

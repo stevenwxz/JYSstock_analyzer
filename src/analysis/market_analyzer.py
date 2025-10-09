@@ -23,14 +23,20 @@ class MarketAnalyzer:
         logger.info("开始执行盘后分析...")
 
         try:
-            # 1. 获取A股股票列表
-            a_share_list = self.data_fetcher.get_a_share_list()
-            if a_share_list.empty:
-                logger.error("无法获取A股股票列表")
+            # 1. 获取沪深300成分股列表（优质股票）
+            import akshare as ak
+            csi300_stocks = ak.index_stock_cons(symbol="000300")
+            if csi300_stocks.empty:
+                logger.error("无法获取沪深300成分股列表")
                 return {}
 
-            # 2. 获取港股通股票列表（简化处理，这里先专注A股）
-            logger.info(f"开始分析 {len(a_share_list)} 只A股股票")
+            # 提取股票代码
+            a_share_list = pd.DataFrame({
+                'code': csi300_stocks['品种代码'].tolist(),
+                'name': csi300_stocks['品种名称'].tolist()
+            })
+
+            logger.info(f"开始分析沪深300成分股，共 {len(a_share_list)} 只")
 
             # 3. 批量获取股票数据（分批处理以避免请求过多）
             batch_size = 100
@@ -42,11 +48,6 @@ class MarketAnalyzer:
 
                 batch_data = self.data_fetcher.batch_get_stock_data(batch)
                 all_stock_data.extend(batch_data)
-
-                # 如果获取了足够的数据，可以提前结束（用于测试）
-                if len(all_stock_data) > 500:
-                    logger.info("已获取足够数据，停止批量获取")
-                    break
 
             logger.info(f"成功获取 {len(all_stock_data)} 只股票的数据")
 

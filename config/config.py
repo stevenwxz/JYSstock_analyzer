@@ -9,7 +9,7 @@ EMAIL_CONFIG = {
     'smtp_port': 587,
     'email': os.getenv('EMAIL_ADDRESS'),
     'password': os.getenv('EMAIL_PASSWORD'),
-    'to_email': '1120311927@qq.com'
+    'to_email': ['1120311927@qq.com', '18943656696@163.com', '1356163565@qq.com']
 }
 
 # 股票筛选参数

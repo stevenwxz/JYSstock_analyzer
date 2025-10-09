@@ -38,49 +38,62 @@ class StockDataFetcher:
             return pd.DataFrame()
 
     def get_stock_realtime_data(self, stock_code: str) -> Dict:
-        """获取股票实时数据"""
+        """获取股票实时数据 - 使用腾讯财经API"""
         try:
-            # 首先尝试获取实时数据
-            try:
-                data = ak.stock_zh_a_spot_em()
-                stock_data = data[data['代码'] == stock_code]
+            # 使用腾讯财经API获取实时数据
+            import requests
 
-                if not stock_data.empty:
-                    return {
-                        'code': stock_code,
-                        'name': stock_data.iloc[0]['名称'],
-                        'price': stock_data.iloc[0]['最新价'],
-                        'change_pct': stock_data.iloc[0]['涨跌幅'],
-                        'pe_ratio': stock_data.iloc[0].get('市盈率-动态', 0),
-                        'volume': stock_data.iloc[0]['成交量'],
-                        'turnover': stock_data.iloc[0]['成交额']
-                    }
-            except Exception as real_time_error:
-                logger.warning(f"实时数据获取失败，尝试使用历史数据: {real_time_error}")
+            # 构造腾讯财经API请求
+            if stock_code.startswith('6'):
+                symbol = f"sh{stock_code}"
+            else:
+                symbol = f"sz{stock_code}"
 
-            # 如果实时数据失败，使用最新历史数据
-            hist_data = self.get_stock_historical_data(stock_code, 10)
-            if not hist_data.empty:
-                latest = hist_data.iloc[-1]
-                prev = hist_data.iloc[-2] if len(hist_data) > 1 else hist_data.iloc[-1]
+            url = f"https://qt.gtimg.cn/q={symbol}"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
 
-                change_pct = ((latest['close'] - prev['close']) / prev['close'] * 100) if len(hist_data) > 1 else 0
+            response = requests.get(url, headers=headers, timeout=8)
 
-                return {
-                    'code': stock_code,
-                    'name': f'股票{stock_code}',  # 临时名称
-                    'price': latest['close'],
-                    'change_pct': change_pct,
-                    'pe_ratio': 0,  # 历史数据中无PE信息
-                    'volume': latest['volume'],
-                    'turnover': latest['turnover'],
-                    'date': latest['date'].strftime('%Y-%m-%d') if pd.notna(latest['date']) else '未知'
-                }
+            if response.status_code == 200:
+                content = response.text
+                if 'v_' in content:
+                    # 解析腾讯返回的数据
+                    data_str = content.split('"')[1]
+                    data_parts = data_str.split('~')
+
+                    if len(data_parts) > 39:
+                        name = data_parts[1]
+                        price = float(data_parts[3]) if data_parts[3] else 0
+                        change_pct = float(data_parts[32]) if data_parts[32] else 0
+                        pe_str = data_parts[39] if len(data_parts) > 39 else None
+                        volume = int(float(data_parts[6])) if data_parts[6] else 0
+                        turnover = int(float(data_parts[37])) if len(data_parts) > 37 and data_parts[37] else 0
+
+                        pe_ratio = None
+                        if pe_str and pe_str != '':
+                            try:
+                                pe_ratio = float(pe_str)
+                                if pe_ratio <= 0:
+                                    pe_ratio = None  # 亏损股
+                            except ValueError:
+                                pass
+
+                        return {
+                            'code': stock_code,
+                            'name': name,
+                            'price': price,
+                            'change_pct': change_pct,
+                            'pe_ratio': pe_ratio,
+                            'volume': volume,
+                            'turnover': turnover
+                        }
 
             return {}
 
         except Exception as e:
-            logger.error(f"获取股票 {stock_code} 数据失败: {e}")
+            logger.error(f"获取股票 {stock_code} 实时数据失败: {e}")
             return {}
 
     def get_stock_historical_data(self, stock_code: str, days: int = 30) -> pd.DataFrame:
@@ -213,15 +226,13 @@ class StockDataFetcher:
                 if not realtime_data:
                     continue
 
-                # 获取历史数据用于计算动量
-                historical_data = self.get_stock_historical_data(code, 30)
-                if not historical_data.empty:
-                    momentum = self.calculate_momentum(historical_data, 20)
-                    realtime_data['momentum_20d'] = momentum
+                # 暂时禁用历史数据获取,避免API限流
+                # 使用腾讯API只能获取实时数据,无法获取历史K线
+                realtime_data['momentum_20d'] = 0  # 默认动量为0
 
                 results.append(realtime_data)
 
-                # 避免请求过于频繁
+                # 避免请求过于频繁,防止被限流(腾讯API比较稳定,可以快一点)
                 time.sleep(0.1)
 
             except Exception as e:

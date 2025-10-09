@@ -167,7 +167,12 @@ class EmailSender:
             # 创建邮件
             msg = MIMEMultipart('alternative')
             msg['From'] = self.config['email']
-            msg['To'] = self.config['to_email']
+
+            # 支持多个收件人
+            to_emails = self.config['to_email']
+            if isinstance(to_emails, str):
+                to_emails = [to_emails]
+            msg['To'] = ', '.join(to_emails)
             msg['Subject'] = subject
 
             # 添加HTML内容
@@ -194,7 +199,7 @@ class EmailSender:
                 server.login(self.config['email'], self.config['password'])
                 server.send_message(msg)
 
-            logger.info(f"邮件发送成功 -> {self.config['to_email']}")
+            logger.info(f"邮件发送成功 -> {', '.join(to_emails)}")
             return True
 
         except Exception as e:
