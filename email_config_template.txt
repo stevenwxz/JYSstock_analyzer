@@ -1,0 +1,26 @@
+# 邮件配置说明
+# 请按照以下步骤获取QQ邮箱授权码：
+
+1. 登录QQ邮箱网页版 (mail.qq.com)
+2. 点击"设置" -> "账户"
+3. 找到"POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务"
+4. 开启"POP3/SMTP服务"或"IMAP/SMTP服务"
+5. 点击"生成授权码"
+6. 按照提示发送短信，获取16位授权码
+7. 将授权码填写到下方配置中
+
+# 当前配置：
+SMTP_SERVER = smtp.qq.com
+SMTP_PORT = 465 (SSL) 或 587 (STARTTLS)
+SENDER_EMAIL = 1120311927@qq.com
+SENDER_PASSWORD = rnhtflrxhscwhiah
+RECEIVER_EMAIL = 1120311927@qq.com
+
+# 注意事项：
+- 授权码不是QQ密码
+- 授权码是16位字母组成，中间可能有空格（使用时去掉空格）
+- 如果连接失败，请检查：
+  1. 授权码是否正确
+  2. 网络是否正常
+  3. QQ邮箱的SMTP服务是否已开启
+  4. 防火墙是否阻止了邮件端口
