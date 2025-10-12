@@ -38,13 +38,14 @@ class StockFilter:
             elif momentum > 0:
                 score += 10
 
-            # 3. 成交量得分 (20%)
-            volume = stock_data.get('volume', 0)
-            if volume > self.config['min_volume'] * 3:
+            # 3. 成交额得分 (20%) - 更准确反映流动性
+            turnover = stock_data.get('turnover', 0)
+            min_turnover = self.config.get('min_turnover', self.config.get('min_volume', 0) * 10)  # 兼容旧配置
+            if turnover > min_turnover * 3:
                 score += 20
-            elif volume > self.config['min_volume'] * 2:
+            elif turnover > min_turnover * 2:
                 score += 15
-            elif volume > self.config['min_volume']:
+            elif turnover > min_turnover:
                 score += 10
 
             # 4. 价格位置得分 (10%)
@@ -65,6 +66,10 @@ class StockFilter:
         for stock in stocks_data:
             try:
                 pe_ratio = stock.get('pe_ratio', 0)
+                # 修复PE筛选问题：确保PE值是数字类型，如果是None则设为0
+                if pe_ratio is None:
+                    pe_ratio = 0
+                
                 # 过滤掉PE为0或负数的股票（可能是亏损股）
                 if 0 < pe_ratio <= self.config['max_pe_ratio']:
                     filtered_stocks.append(stock)
@@ -87,8 +92,9 @@ class StockFilter:
                                  key=lambda x: x['strength_score'],
                                  reverse=True)
 
-            # 只保留分数大于50的股票（避免选择弱势股票）
-            strong_stocks = [stock for stock in sorted_stocks if stock['strength_score'] > 50]
+            # 根据配置的最小强势分数筛选
+            min_score = self.config.get('min_strength_score', 50)
+            strong_stocks = [stock for stock in sorted_stocks if stock['strength_score'] >= min_score]
 
             logger.info(f"强势筛选后剩余 {len(strong_stocks)} 只股票")
             return strong_stocks
@@ -105,19 +111,20 @@ class StockFilter:
             try:
                 # 过滤条件
                 price = stock.get('price', 0)
-                volume = stock.get('volume', 0)
+                turnover = stock.get('turnover', 0)
                 change_pct = stock.get('change_pct', 0)
 
-                # 排除停牌股票（涨跌幅为0且成交量很小）
-                if change_pct == 0 and volume < 1000:
+                # 排除停牌股票（涨跌幅为0且成交额很小）
+                if change_pct == 0 and turnover < 1000000:
                     continue
 
                 # 排除价格过低的股票
                 if price < self.config['min_price']:
                     continue
 
-                # 排除成交量过小的股票
-                if volume < self.config['min_volume']:
+                # 排除成交额过小的股票（优先使用成交额）
+                min_turnover = self.config.get('min_turnover', self.config.get('min_volume', 0) * 10)
+                if turnover < min_turnover:
                     continue
 
                 # 排除跌停股票

@@ -32,12 +32,16 @@ def send_detailed_report():
     smtp_port = 587
     sender_email = "1120311927@qq.com"
     sender_password = "tgpjsycgilbujifb"  # QQ邮箱授权码（从.env文件获取）
-    receiver_email = "1120311927@qq.com"
+    receiver_emails = [
+        "1120311927@qq.com",
+        "18943656696@163.com",
+        "1356163565@qq.com"
+    ]
 
     # 创建邮件
     msg = MIMEMultipart()
     msg['From'] = sender_email
-    msg['To'] = receiver_email
+    msg['To'] = ", ".join(receiver_emails)
     msg['Subject'] = "📊 2025年10月10日沪深300量化分析报告（详细版）"
 
     # 创建HTML邮件内容
@@ -451,13 +455,13 @@ def send_detailed_report():
 
         print("正在发送邮件...")
         text = msg.as_string()
-        server.sendmail(sender_email, receiver_email, text)
+        server.sendmail(sender_email, receiver_emails, text)
         server.quit()
 
         print("\n" + "="*60)
         print("✅ 邮件发送成功！")
         print("="*60)
-        print(f"📮 收件人: {receiver_email}")
+        print(f"📮 收件人: {', '.join(receiver_emails)}")
         print(f"📧 主题: 2025年10月10日沪深300量化分析报告（详细版）")
         print(f"⏰ 发送时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("\n📊 邮件内容包含:")
