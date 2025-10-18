@@ -138,7 +138,7 @@ python run_backtest_optimized.py
 ```python
 STOCK_FILTER_CONFIG = {
     'max_pe_ratio': 20,          # PE更严格
-    'min_turnover': 100000000,   # 成交额1亿（超大盘股）
+    'min_turnover': 10000,   # 成交额1亿（超大盘股）
     'min_strength_score': 60,    # 更高的强势要求
     'max_stocks': 2              # 只推荐2只
 }
@@ -149,7 +149,7 @@ STOCK_FILTER_CONFIG = {
 ```python
 STOCK_FILTER_CONFIG = {
     'max_pe_ratio': 50,          # PE更宽松
-    'min_turnover': 30000000,    # 成交额3000万
+    'min_turnover': 3000,    # 成交额3000万
     'min_strength_score': 40,    # 降低门槛
     'max_stocks': 5              # 推荐5只
 }
@@ -160,7 +160,7 @@ STOCK_FILTER_CONFIG = {
 ```python
 STOCK_FILTER_CONFIG = {
     'max_pe_ratio': 30,
-    'min_turnover': 50000000,    # 5000万
+    'min_turnover': 5000,    # 5000万
     'min_strength_score': 50,
     'max_stocks': 3
 }
@@ -205,7 +205,7 @@ rmdir /s cache
 可能原因：
 
 1. **强势分数太高** - 降低 `min_strength_score` 到 40
-2. **成交额门槛太高** - 降低 `min_turnover` 到 30000000
+2. **成交额门槛太高** - 降低 `min_turnover` 到 3000
 3. **PE要求太严格** - 提高 `max_pe_ratio` 到 50
 4. **当日市场行情差** - 换个日期测试
 

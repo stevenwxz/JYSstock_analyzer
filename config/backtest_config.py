@@ -7,7 +7,7 @@
 # 回测筛选参数（与实盘一致，仅成交额放宽）
 BACKTEST_FILTER_CONFIG = {
     'max_pe_ratio': 30,          # PE上限：30（与实盘一致）
-    'min_turnover': 30000000,    # 最小成交额：3000万元（放宽，实盘5000万）
+    'min_turnover': 3000,    # 最小成交额：3000万元（API返回单位为万元，放宽，实盘5000万）
     'momentum_days': 20,         # 动量计算天数
     'min_price': 1.0,            # 最小股价
     'max_stocks': 3,             # 推荐数量：3只（与实盘一致）

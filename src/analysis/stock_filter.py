@@ -115,7 +115,7 @@ class StockFilter:
                 change_pct = stock.get('change_pct', 0)
 
                 # 排除停牌股票（涨跌幅为0且成交额很小）
-                if change_pct == 0 and turnover < 1000000:
+                if change_pct == 0 and turnover < 100:  # 100万元（API返回单位为万元）
                     continue
 
                 # 排除价格过低的股票
@@ -143,6 +143,16 @@ class StockFilter:
     def select_top_stocks(self, stocks_data: List[Dict]) -> List[Dict]:
         """选择最终的推荐股票"""
         try:
+            # 0. 去重（防止输入数据中有重复）
+            unique_stocks = {}
+            for stock in stocks_data:
+                code = stock.get('code')
+                if code and code not in unique_stocks:
+                    unique_stocks[code] = stock
+
+            stocks_data = list(unique_stocks.values())
+            logger.info(f"去重后股票数量: {len(stocks_data)}")
+
             # 1. 首先按PE筛选
             pe_filtered = self.filter_by_pe_ratio(stocks_data)
 

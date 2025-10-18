@@ -122,11 +122,17 @@ def main():
             latest_analysis = analyzer.get_latest_analysis()
 
             if latest_analysis:
-                success = email_sender.send_analysis_email(latest_analysis)
+                # 使用带附件的发送方式
+                success = email_sender.send_analysis_email_with_attachment(latest_analysis)
                 if success:
-                    print("邮件发送成功！")
+                    print("✅ 邮件发送成功！")
+                    print("📧 邮件内容包括：")
+                    print("  ✓ 精美的HTML格式报告")
+                    print("  ✓ 详细的数据分析和可视化")
+                    print("  ✓ 市场分析和操作建议")
+                    print("  ✓ Markdown格式附件")
                 else:
-                    print("邮件发送失败，请检查配置")
+                    print("❌ 邮件发送失败，请检查配置")
             else:
                 print("没有找到分析结果，请先执行分析")
 

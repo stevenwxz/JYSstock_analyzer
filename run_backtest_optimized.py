@@ -153,12 +153,16 @@ class OptimizedBacktest:
         self.save_to_cache(cache_key, cache_data)
         return stocks
 
-    def get_stock_data_for_date(self, stock_code: str, date: str):
+    def get_stock_data_for_date(self, stock_code: str, date: str, pe_ratio: float = None, purpose: str = "buy"):
         """获取指定日期的股票数据（带缓存）"""
-        cache_key = f"stock_{stock_code}_{date}"
+        # 为买入和卖出使用不同的缓存键，避免冲突
+        cache_key = f"stock_{stock_code}_{date}_{purpose}"
         cached_data = self.load_from_cache(cache_key)
 
         if cached_data:
+            # 如果提供了新的PE值，更新缓存数据
+            if pe_ratio is not None and pe_ratio > 0:
+                cached_data['pe_ratio'] = pe_ratio
             return cached_data
 
         try:
@@ -183,6 +187,18 @@ class OptimizedBacktest:
             # 获取真实股票名称
             stock_name = self.get_stock_name(stock_code)
 
+            # 获取PE数据（优先使用传入的值）
+            final_pe_ratio = 20.0  # 默认值
+            if pe_ratio is not None and pe_ratio > 0:
+                final_pe_ratio = pe_ratio
+            elif '市盈率' in row:
+                try:
+                    pe_value = row['市盈率']
+                    if pe_value and pe_value > 0:
+                        final_pe_ratio = float(pe_value)
+                except:
+                    pass
+
             # 计算20日动量
             momentum_20d = 0
             if len(df_on_date) >= 20:
@@ -202,7 +218,7 @@ class OptimizedBacktest:
                 'change_pct': float(row['涨跌幅']),
                 'volume': int(row['成交量']),
                 'turnover': float(row['成交额']),
-                'pe_ratio': 20.0,  # 使用合理默认值
+                'pe_ratio': final_pe_ratio,
                 'momentum_20d': momentum_20d,
                 'strength_score': 0
             }
@@ -225,6 +241,28 @@ class OptimizedBacktest:
             return (current + timedelta(days=days)).strftime('%Y-%m-%d')
         except:
             return date
+
+    def fetch_pe_ratios_batch(self, stock_codes: list) -> dict:
+        """批量获取股票PE数据(使用腾讯API)"""
+        pe_dict = {}
+        logger.info("📊 正在获取PE数据(使用腾讯财经API)...")
+
+        success_count = 0
+        for i, code in enumerate(stock_codes):
+            try:
+                stock_data = self.data_fetcher.get_stock_realtime_data(code)
+                if stock_data and stock_data.get('pe_ratio'):
+                    pe_dict[code] = stock_data['pe_ratio']
+                    success_count += 1
+
+                # 每50个股票显示一次进度
+                if (i + 1) % 50 == 0:
+                    logger.info(f"   进度: {i+1}/{len(stock_codes)}")
+            except:
+                pass
+
+        logger.info(f"✅ 成功获取 {success_count}/{len(stock_codes)} 只股票的PE数据")
+        return pe_dict
 
     def backtest_single_day(self, analysis_date: str, hold_days: int = 1):
         """回测单日策略"""
@@ -249,12 +287,16 @@ class OptimizedBacktest:
             random.seed(BACKTEST_SAMPLE_CONFIG['random_seed'])
             sampled_stocks = random.sample(stock_list, min(sample_size, len(stock_list)))
 
+        # 批量获取PE数据
+        pe_ratios = self.fetch_pe_ratios_batch(sampled_stocks)
+
         stock_data = []
         for i, code in enumerate(sampled_stocks):
             if i % 20 == 0:
                 logger.info(f"⏳ 数据获取进度: {i+1}/{len(sampled_stocks)}")
 
-            data = self.get_stock_data_for_date(code, analysis_date)
+            # 获取买入数据时标记purpose为"buy"
+            data = self.get_stock_data_for_date(code, analysis_date, pe_ratios.get(code), "buy")
             if data:
                 stock_data.append(data)
 
@@ -274,6 +316,7 @@ class OptimizedBacktest:
         logger.info(f"   • 强势分数: ≥{BACKTEST_FILTER_CONFIG['min_strength_score']}")
         logger.info(f"   • 推荐数量: {BACKTEST_FILTER_CONFIG['max_stocks']}只")
 
+        # 调用筛选器选择股票
         selected_stocks = self.stock_filter.select_top_stocks(stock_data)
 
         if not selected_stocks:
@@ -285,6 +328,19 @@ class OptimizedBacktest:
                 'config_used': 'backtest_relaxed'
             }
 
+        # 在输出筛选结果前增加去重检查
+        unique_stocks = []
+        seen_codes = set()
+        
+        for stock in selected_stocks:
+            if stock['code'] not in seen_codes:
+                unique_stocks.append(stock)
+                seen_codes.add(stock['code'])
+            else:
+                logger.warning(f"发现重复股票代码: {stock['code']} ({stock['name']})，已跳过重复项")
+        
+        selected_stocks = unique_stocks
+        
         logger.info(f"\n🏆 筛选结果 ({len(selected_stocks)}只):")
         for stock in selected_stocks:
             logger.info(f"   #{stock['rank']} {stock['name']} ({stock['code']}): "
@@ -297,7 +353,8 @@ class OptimizedBacktest:
 
         performance = []
         for stock in selected_stocks:
-            sell_data = self.get_stock_data_for_date(stock['code'], sell_date)
+            # 获取卖出数据时标记purpose为"sell"
+            sell_data = self.get_stock_data_for_date(stock['code'], sell_date, purpose="sell")
             if sell_data:
                 buy_price = stock['price']
                 sell_price = sell_data['price']
@@ -430,7 +487,9 @@ def main():
         result = backtest.backtest_single_day(date, hold_days)
 
         if result:
-            filename = f"backtest_opt_{date}_{hold_days}days.json"
+            # 确保目录存在
+            os.makedirs('./logs/backtest', exist_ok=True)
+            filename = f"./logs/backtest/backtest_opt_{date}_{hold_days}days.json"
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
             logger.info(f"\n✅ 回测结果已保存: {filename}")
@@ -443,7 +502,9 @@ def main():
         results = backtest.backtest_multi_days(start_date, end_date, hold_days)
 
         if results:
-            filename = f"backtest_opt_{start_date}_to_{end_date}.json"
+            # 确保目录存在
+            os.makedirs('./logs/backtest', exist_ok=True)
+            filename = f"./logs/backtest/backtest_opt_{start_date}_to_{end_date}.json"
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(results, f, ensure_ascii=False, indent=2)
             logger.info(f"\n✅ 回测结果已保存: {filename}")

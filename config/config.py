@@ -15,11 +15,11 @@ EMAIL_CONFIG = {
 # 股票筛选参数
 STOCK_FILTER_CONFIG = {
     'max_pe_ratio': 30,
-    'min_turnover': 50000000,  # 最小成交额：5000万元（严格标准）
-    'momentum_days': 20,       # 动量计算天数
-    'min_price': 1.0,          # 最小股价
-    'max_stocks': 3,           # 最多选择股票数量
-    'min_strength_score': 50   # 最小强势分数
+    'min_turnover': 5000,  # 最小成交额：5000万元（API返回单位为万元）
+    'momentum_days': 20,
+    'min_price': 1.0,
+    'max_stocks': 5,  # 从3只增加到5只
+    'min_strength_score': 40   # 从50降低到40
 }
 
 # 数据源配置

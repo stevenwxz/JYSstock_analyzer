@@ -14,10 +14,22 @@ dist/
 # 项目特定
 .env
 cache/
-*.json
 *.log
-logs/*.log
+
+# 日志目录
+logs/analysis/*.json
+logs/backtest/*.json
+logs/system/*.log
+
+# 报告目录（生成的报告文件）
+reports/*.md
+
+# 废弃脚本
+scripts/
+
+# 备份文件
 *.md.bak
+*.bak
 
 # IDE
 .vscode/

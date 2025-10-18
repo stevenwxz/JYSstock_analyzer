@@ -18,23 +18,59 @@ class MarketAnalyzer:
         self.stock_filter = StockFilter()
         self.analysis_results = {}
 
+    def _load_csi300_stocks(self) -> pd.DataFrame:
+        """加载沪深300成分股列表 - 优先使用本地缓存"""
+        try:
+            # 方法1: 从本地JSON文件加载(快速)
+            local_file = './data/csi300_stocks.json'
+            if os.path.exists(local_file):
+                logger.info("从本地文件加载沪深300成分股列表...")
+                with open(local_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    stocks = data['stocks']
+                    logger.info(f"成功从本地加载 {len(stocks)} 只沪深300成分股 (更新日期: {data.get('update_date', '未知')})")
+                    return pd.DataFrame(stocks)
+
+            # 方法2: 使用akshare在线获取(慢速,作为备用)
+            logger.warning("本地文件不存在,尝试在线获取沪深300成分股列表(可能较慢)...")
+            import akshare as ak
+            csi300_stocks = ak.index_stock_cons(symbol="000300")
+            if not csi300_stocks.empty:
+                logger.info(f"在线获取成功: {len(csi300_stocks)} 只")
+                # 保存到本地以便下次使用
+                result = pd.DataFrame({
+                    'code': csi300_stocks['品种代码'].tolist(),
+                    'name': csi300_stocks['品种名称'].tolist()
+                })
+                # 保存到本地
+                os.makedirs('./data', exist_ok=True)
+                save_data = {
+                    'update_date': datetime.now().strftime('%Y-%m-%d'),
+                    'note': '沪深300成分股列表 - 自动生成',
+                    'stocks': result.to_dict('records')
+                }
+                with open(local_file, 'w', encoding='utf-8') as f:
+                    json.dump(save_data, f, ensure_ascii=False, indent=2)
+                logger.info(f"已保存到本地文件: {local_file}")
+                return result
+
+            logger.error("无法获取沪深300成分股列表")
+            return pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"加载沪深300成分股列表失败: {e}")
+            return pd.DataFrame()
+
     def run_daily_analysis(self) -> Dict:
         """执行每日盘后分析"""
         logger.info("开始执行盘后分析...")
 
         try:
-            # 1. 获取沪深300成分股列表（优质股票）
-            import akshare as ak
-            csi300_stocks = ak.index_stock_cons(symbol="000300")
-            if csi300_stocks.empty:
+            # 1. 获取沪深300成分股列表（优先使用本地缓存）
+            a_share_list = self._load_csi300_stocks()
+            if a_share_list.empty:
                 logger.error("无法获取沪深300成分股列表")
                 return {}
-
-            # 提取股票代码
-            a_share_list = pd.DataFrame({
-                'code': csi300_stocks['品种代码'].tolist(),
-                'name': csi300_stocks['品种名称'].tolist()
-            })
 
             logger.info(f"开始分析沪深300成分股，共 {len(a_share_list)} 只")
 
@@ -70,6 +106,9 @@ class MarketAnalyzer:
 
             # 7. 保存分析结果
             self._save_analysis_result(analysis_result)
+
+            # 8. 自动生成Markdown报告
+            self._generate_markdown_report(analysis_result)
 
             logger.info("盘后分析完成")
             return analysis_result
@@ -155,10 +194,10 @@ class MarketAnalyzer:
         """保存分析结果"""
         try:
             # 确保目录存在
-            os.makedirs('./logs', exist_ok=True)
+            os.makedirs('./logs/analysis', exist_ok=True)
 
             # 保存到文件
-            filename = f"./logs/analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            filename = f"./logs/analysis/analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=2, default=str)
 
@@ -172,7 +211,7 @@ class MarketAnalyzer:
     def get_latest_analysis(self) -> Optional[Dict]:
         """获取最新的分析结果"""
         try:
-            log_dir = './logs'
+            log_dir = './logs/analysis'
             if not os.path.exists(log_dir):
                 return None
 
@@ -234,3 +273,142 @@ class MarketAnalyzer:
         except Exception as e:
             logger.error(f"生成表现报告失败: {e}")
             return {}
+    def _generate_markdown_report(self, analysis_result: Dict) -> bool:
+        """生成Markdown格式报告"""
+        try:
+            from datetime import datetime
+            
+            analysis_date = analysis_result.get('analysis_date', datetime.now().strftime('%Y-%m-%d'))
+            selected_stocks = analysis_result.get('selected_stocks', [])
+            total_analyzed = analysis_result.get('total_analyzed', 300)
+            config = analysis_result.get('selection_criteria', {})
+            market_overview = analysis_result.get('market_overview', {})
+            
+            # 转换日期格式
+            date_obj = datetime.strptime(analysis_date, '%Y-%m-%d')
+            date_cn = date_obj.strftime('%Y年%m月%d日')
+            
+            # 生成Markdown内容
+            md_content = f"""# 📊 {date_cn}沪深300成分股分析结果
+
+## 🔍 **分析概况**
+
+### 📅 **基本信息**
+- **分析日期**: {analysis_date}
+- **分析时间**: {analysis_result.get('analysis_time', '--')}
+- **数据源**: 实时交易数据
+- **股票池**: 沪深300成分股
+- **目标股票数**: {total_analyzed}只
+- **筛选条件**: PE ≤ {config.get('max_pe_ratio', 30)}, 成交额 ≥ {config.get('min_turnover', 50000000)/10000:.0f}万元
+
+## 🏆 **Top {len(selected_stocks)} 精选股票**
+
+"""
+            
+            # 添加每只股票的详细信息
+            for stock in selected_stocks:
+                trend = "↗" if stock.get('change_pct', 0) > 0 else "↘" if stock.get('change_pct', 0) < 0 else "→"
+                md_content += f"""### #{stock.get('rank', 0)} {stock['name']} ({stock['code']}) [{trend}]
+- **价格**: ¥{stock.get('price', 0):.2f}
+- **涨跌幅**: {stock.get('change_pct', 0):+.2f}%
+- **PE**: {stock.get('pe_ratio', 0):.2f}倍
+- **强势分数**: {stock.get('strength_score', 0):.0f}分
+- **选择理由**: {stock.get('selection_reason', '符合筛选条件')}
+
+"""
+            
+            # 添加候选股票表格
+            if selected_stocks:
+                md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
+
+| 排名 | 股票名称 | 代码 | PE | 涨跌幅 | 评分 | 成交额(万) |
+|------|----------|------|----|---------|----- |-----------|
+"""
+                
+                for stock in selected_stocks:
+                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | - |\n"
+            
+            # 添加筛选统计
+            md_content += f"""
+## 📊 **沪深300筛选统计**
+
+### 🔍 **筛选结果**
+- **沪深300总数**: {total_analyzed}只
+- **筛选通过**: {len(selected_stocks)}只
+- **筛选通过率**: {len(selected_stocks)/total_analyzed*100 if total_analyzed > 0 else 0:.2f}%
+
+### 📊 **筛选标准**
+- **PE筛选**: PE ≤ {config.get('max_pe_ratio', 30)}
+- **成交额筛选**: 成交额 ≥ {config.get('min_turnover', 50000000)/10000:.0f}万元
+- **强势分数**: ≥ {config.get('min_strength_score', 50)}
+- **数量限制**: 最多推荐{config.get('max_stocks', 3)}只股票
+
+## 📊 **市场统计**
+
+### 🎯 **整体表现**
+- **全市场总股票**: {market_overview.get('total_stocks', 0):,}只
+- **上涨股票**: {market_overview.get('rising_stocks', 0):,}只 ({market_overview.get('rising_ratio', 0):.2f}%)
+- **下跌股票**: {market_overview.get('falling_stocks', 0):,}只
+- **全市场平均涨跌幅**: {market_overview.get('avg_change_pct', 0):.2f}%
+- **市场情绪**: {analysis_result.get('summary', {}).get('market_sentiment', '未知')}
+
+## 🎯 **投资分析**
+
+### ✅ **精选股票亮点**
+"""
+            
+            for i, stock in enumerate(selected_stocks, 1):
+                md_content += f"""
+{i}. **{stock['name']} ({stock['code']})**
+   - **估值水平**: PE {stock.get('pe_ratio', 0):.2f}倍
+   - **强势评分**: {stock.get('strength_score', 0):.0f}分
+   - **技术形态**: 符合多维度筛选标准
+"""
+            
+            md_content += f"""
+### 📈 **投资价值**
+- **市场代表性**: 基于沪深300成分股,代表A股核心优质资产
+- **估值安全**: 严格PE筛选避免高风险标的  
+- **流动性保证**: 成交额要求确保充足的交易流动性
+- **技术筛选**: 基于20日动量、强势分数等多维度技术指标
+
+### ⚠️ **风险提示**
+1. **市场风险**: 股市有风险,投资需谨慎
+2. **估值风险**: PE为历史数据,需关注最新财报
+3. **流动性风险**: 市场波动可能影响交易流动性
+4. **投资建议**: 本报告仅供参考,不构成投资建议
+
+## 💡 **技术说明**
+
+### 🔧 **策略特点**
+- **多维度筛选**: PE估值、成交额、动量、强势评分综合评估
+- **20日动量**: 基于20日价格动量捕捉趋势
+- **成交额过滤**: 确保足够的市场流动性
+- **智能评分**: 综合涨跌幅、动量、流动性等指标
+
+### 📊 **数据来源**
+- **股票池**: 沪深300成分股
+- **数据频率**: 实时交易数据
+- **更新时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**分析版本**: v3.0 (量化策略优化版)
+**数据范围**: 沪深300成分股分析 ✓
+"""
+            
+            # 确保reports目录存在
+            os.makedirs('./reports', exist_ok=True)
+
+            # 保存文件
+            output_file = f"./reports/{date_cn}沪深300分析结果.md"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+
+            logger.info(f"Markdown报告已生成: {output_file}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"生成Markdown报告失败: {e}")
+            return False
