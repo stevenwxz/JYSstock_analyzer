@@ -609,21 +609,29 @@ class EmailSender:
 
             # 连接SMTP服务器并发送
             logger.info(f"正在连接SMTP服务器: {self.config['smtp_server']}:{self.config['smtp_port']}")
-            with smtplib.SMTP(self.config['smtp_server'], self.config['smtp_port']) as server:
+            server = None
+            try:
+                server = smtplib.SMTP(self.config['smtp_server'], self.config['smtp_port'], timeout=30)
                 server.starttls()
                 logger.info("正在登录邮箱...")
                 server.login(self.config['email'], self.config['password'])
                 logger.info("正在发送邮件...")
                 server.send_message(msg)
-
-            logger.info(f"✅ 邮件发送成功 -> {', '.join(to_emails)}")
-            return True
+                logger.info(f"邮件发送成功 -> {', '.join(to_emails)}")
+                return True
+            finally:
+                # 确保服务器连接被关闭,忽略关闭时的异常
+                if server:
+                    try:
+                        server.quit()
+                    except:
+                        pass
 
         except smtplib.SMTPException as e:
-            logger.error(f"SMTP错误: {e}", exc_info=True)
+            logger.error(f"SMTP错误: {e}")
             return False
         except Exception as e:
-            logger.error(f"发送邮件失败: {e}", exc_info=True)
+            logger.error(f"发送邮件失败: {e}")
             return False
 
     def send_test_email(self) -> bool:
