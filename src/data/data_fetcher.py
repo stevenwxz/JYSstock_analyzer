@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import time
 import logging
+import random
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 
@@ -12,6 +13,17 @@ class StockDataFetcher:
     def __init__(self):
         self.a_share_stocks = None
         self.hk_connect_stocks = None
+        self.failed_stocks = []  # 记录失败的股票代码
+
+        # User-Agent池 - 模拟不同的浏览器
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ]
 
     def get_a_share_list(self) -> pd.DataFrame:
         """获取A股股票列表"""
@@ -37,15 +49,23 @@ class StockDataFetcher:
             logger.error(f"获取港股通列表失败: {e}")
             return pd.DataFrame()
 
-    def get_stock_realtime_data(self, stock_code: str) -> Dict:
-        """获取股票实时数据 - 使用腾讯财经API"""
+    def _get_random_user_agent(self) -> str:
+        """随机获取一个User-Agent"""
+        return random.choice(self.user_agents)
+
+    def _random_delay(self, min_delay: float = 0.3, max_delay: float = 0.8):
+        """随机延迟，模拟人工操作"""
+        delay = random.uniform(min_delay, max_delay)
+        time.sleep(delay)
+
+    def get_stock_realtime_data(self, stock_code: str, retry_count: int = 0) -> Dict:
+        """获取股票实时数据 - 使用腾讯财经API，带重试机制"""
         import requests
-        import time
-        
+
         # 增加重试机制
-        max_retries = 3
-        timeout = 15  # 增加超时时间到15秒
-        
+        max_retries = 5  # 增加到5次重试
+        timeout = 20  # 增加超时时间到20秒
+
         for attempt in range(max_retries):
             try:
                 # 构造腾讯财经API请求
@@ -55,9 +75,20 @@ class StockDataFetcher:
                     symbol = f"sz{stock_code}"
 
                 url = f"https://qt.gtimg.cn/q={symbol}"
+
+                # 使用随机User-Agent
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    'User-Agent': self._get_random_user_agent(),
+                    'Accept': '*/*',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Connection': 'keep-alive',
+                    'Referer': 'https://gu.qq.com/'
                 }
+
+                # 添加随机延迟，避免被识别为机器人
+                if attempt > 0:
+                    self._random_delay(0.5, 1.5)
 
                 response = requests.get(url, headers=headers, timeout=timeout)
 
@@ -95,71 +126,370 @@ class StockDataFetcher:
                                 'turnover': turnover
                             }
 
-                # 如果响应不成功，等待后重试
+                # 如果响应不成功，等待后重试 - 使用指数退避 + 随机抖动
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # 指数退避
-                    
+                    backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.debug(f"股票 {stock_code} 重试等待 {backoff_time:.2f} 秒...")
+                    time.sleep(backoff_time)
+
             except Exception as e:
                 logger.warning(f"获取股票 {stock_code} 实时数据失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # 指数退避
+                    # 指数退避 + 随机抖动
+                    backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(backoff_time)
                 continue
-                
+
+        # 所有重试都失败后，记录失败的股票
+        if stock_code not in self.failed_stocks:
+            self.failed_stocks.append(stock_code)
         logger.error(f"获取股票 {stock_code} 实时数据失败，已重试 {max_retries} 次")
         return {}
 
-    def get_stock_historical_data(self, stock_code: str, days: int = 30) -> pd.DataFrame:
-        """获取股票历史数据 - 带简单内存缓存"""
+    def get_stock_fundamental_data(self, stock_code: str) -> Dict:
+        """获取股票基本面数据 - 纯腾讯财经API (简化版)"""
+        import requests
+
+        max_retries = 3
+
+        for attempt in range(max_retries):
+            try:
+                # 确定市场代码
+                if stock_code.startswith('6'):
+                    market = 'sh'
+                elif stock_code.startswith('0') or stock_code.startswith('3'):
+                    market = 'sz'
+                elif stock_code.startswith('688'):
+                    market = 'sh'
+                else:
+                    market = 'sz'
+
+                symbol = f"{market}{stock_code}"
+
+                # 腾讯财经实时行情API
+                url = f"https://qt.gtimg.cn/q={symbol}"
+                headers = {
+                    'User-Agent': self._get_random_user_agent(),
+                    'Referer': 'https://gu.qq.com/'
+                }
+
+                response = requests.get(url, headers=headers, timeout=15)
+
+                if response.status_code == 200 and 'v_' in response.text:
+                    content = response.text
+                    data_str = content.split('"')[1]
+                    data_parts = data_str.split('~')
+
+                    if len(data_parts) > 52:
+                        # 从腾讯API解析基本面数据
+                        # 关键字段位置:
+                        # [39] = PE市盈率
+                        # [46] = PB市净率
+                        # [52] = 股息率
+                        # [53] = 股息
+                        # [56] = 换手率
+
+                        # 解析PB市净率
+                        pb_ratio = None
+                        if data_parts[46]:
+                            try:
+                                pb_ratio = float(data_parts[46])
+                                if pb_ratio <= 0:
+                                    pb_ratio = None
+                            except (ValueError, IndexError):
+                                pass
+
+                        # 解析股息率
+                        dividend_yield = None
+                        if data_parts[52]:
+                            try:
+                                dividend_yield = float(data_parts[52])
+                                if dividend_yield < 0:
+                                    dividend_yield = None
+                            except (ValueError, IndexError):
+                                pass
+
+                        # 解析换手率
+                        turnover_rate = None
+                        if len(data_parts) > 56 and data_parts[56]:
+                            try:
+                                turnover_rate = float(data_parts[56])
+                            except (ValueError, IndexError):
+                                pass
+
+                        # 获取PE用于估算PEG（简化版：使用行业平均增长率15%）
+                        pe_ratio = None
+                        peg = None
+                        if data_parts[39]:
+                            try:
+                                pe_ratio = float(data_parts[39])
+                                if pe_ratio > 0:
+                                    # 简化PEG计算：假设平均增长率15%
+                                    # 如果PB很低(<1),假设增长更高(20%)
+                                    # 如果PB很高(>5),假设增长较低(10%)
+                                    if pb_ratio:
+                                        if pb_ratio < 1:
+                                            assumed_growth = 20
+                                        elif pb_ratio > 5:
+                                            assumed_growth = 10
+                                        else:
+                                            assumed_growth = 15
+                                    else:
+                                        assumed_growth = 15
+
+                                    peg = pe_ratio / assumed_growth
+                            except (ValueError, IndexError):
+                                pass
+
+                        # 计算ROE = PB / PE (重要!)
+                        roe = None
+                        if pb_ratio and pe_ratio and pe_ratio > 0:
+                            try:
+                                roe = (pb_ratio / pe_ratio) * 100  # 转换为百分比
+                                # ROE合理性检查: 通常在-50%到50%之间
+                                if roe < -50 or roe > 50:
+                                    logger.debug(f"{stock_code} ROE计算异常: {roe:.2f}%, PB={pb_ratio}, PE={pe_ratio}")
+                                    # 保留数据,但标记可能异常
+                            except Exception as e:
+                                logger.debug(f"计算ROE失败: {e}")
+                                roe = None
+
+                        # 基于ROE和股息率估算利润增长率(简化)
+                        profit_growth = None
+                        if roe and dividend_yield:
+                            try:
+                                # 利润增长率估算 = ROE × (1 - 股息支付率)
+                                # 假设股息支付率 = 股息率 / ROE
+                                payout_ratio = min(dividend_yield / roe, 0.9) if roe > 0 else 0.5
+                                profit_growth = roe * (1 - payout_ratio)
+                            except:
+                                profit_growth = None
+
+                        # 基于现有数据推算财务健康度评分
+                        financial_health_score = self._calculate_financial_health(
+                            pb_ratio, dividend_yield, pe_ratio, turnover_rate
+                        )
+
+                        fundamental_data = {
+                            'pb_ratio': pb_ratio,
+                            'dividend_yield': dividend_yield,
+                            'peg': peg,  # 简化版PEG
+                            'turnover_rate': turnover_rate,
+                            'financial_health_score': financial_health_score,
+                            'roe': roe,  # 通过PB/PE计算得出! ⭐
+                            'profit_growth': profit_growth,  # 通过ROE估算
+                            # 以下字段暂时无法获取
+                            'debt_ratio': None,  # 腾讯API不提供
+                            'current_ratio': None,
+                            'gross_margin': None,
+                        }
+
+                        return fundamental_data
+
+                # 重试
+                if attempt < max_retries - 1:
+                    backoff_time = (2 ** attempt) + random.uniform(0, 0.5)
+                    time.sleep(backoff_time)
+                    continue
+
+            except Exception as e:
+                logger.warning(f"获取股票 {stock_code} 基本面数据失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    backoff_time = (2 ** attempt) + random.uniform(0, 0.5)
+                    time.sleep(backoff_time)
+                    continue
+
+        # 返回空数据
+        return {
+            'pb_ratio': None,
+            'dividend_yield': None,
+            'peg': None,
+            'turnover_rate': None,
+            'financial_health_score': 0,
+            'roe': None,
+            'profit_growth': None,
+            'debt_ratio': None,
+            'current_ratio': None,
+            'gross_margin': None,
+        }
+
+    def _calculate_financial_health(self, pb: Optional[float], div_yield: Optional[float],
+                                    pe: Optional[float], turnover: Optional[float]) -> int:
+        """基于有限数据计算财务健康度评分 (0-100)"""
+        score = 50  # 基础分50分
+
         try:
-            # 简单的内存缓存key
-            cache_key = f"{stock_code}_{days}"
-            cache_time = 3600  # 缓存1小时
+            # PB评分 (±20分)
+            if pb:
+                if pb < 1:  # 破净
+                    score += 20
+                elif pb < 2:  # 低估
+                    score += 10
+                elif pb > 10:  # 极度高估
+                    score -= 20
+                elif pb > 5:  # 高估
+                    score -= 10
 
-            # 检查内存缓存
-            if not hasattr(self, '_hist_cache'):
-                self._hist_cache = {}
+            # 股息率评分 (±15分)
+            if div_yield:
+                if div_yield > 5:
+                    score += 15
+                elif div_yield > 3:
+                    score += 10
+                elif div_yield > 2:
+                    score += 5
+                elif div_yield < 1:
+                    score -= 5
 
-            if cache_key in self._hist_cache:
-                cached_data, cached_time = self._hist_cache[cache_key]
-                if time.time() - cached_time < cache_time:
-                    return cached_data
+            # PE评分 (±10分)
+            if pe:
+                if 10 < pe < 20:  # 合理区间
+                    score += 10
+                elif 20 <= pe < 30:
+                    score += 5
+                elif pe >= 50:  # 过高
+                    score -= 10
 
-            end_date = datetime.now().strftime('%Y%m%d')
-            # 增加天数以确保获取足够的交易日(考虑周末和节假日)
-            actual_days = int(days * 1.5)  # 30天 -> 45天自然日
-            start_date = (datetime.now() - timedelta(days=actual_days)).strftime('%Y%m%d')
+            # 换手率评分 (±5分)
+            if turnover:
+                if 1 < turnover < 5:  # 适中
+                    score += 5
+                elif turnover > 20:  # 过度投机
+                    score -= 5
 
-            # 获取历史K线数据
-            data = ak.stock_zh_a_hist(symbol=stock_code, period="daily",
-                                    start_date=start_date, end_date=end_date)
+        except:
+            pass
 
-            if data.empty:
-                return pd.DataFrame()
+        return max(0, min(100, score))  # 限制在0-100之间
 
-            # 存入缓存
-            self._hist_cache[cache_key] = (data, time.time())
+    def get_stock_historical_data(self, stock_code: str, days: int = 30) -> pd.DataFrame:
+        """获取股票历史数据 - 使用腾讯财经API，带重试机制和缓存"""
+        import requests
 
-            # 检查列数并重命名
-            if len(data.columns) >= 6:
-                # 至少保证基本的OHLCV数据
-                if len(data.columns) == 11:
-                    data.columns = ['date', 'open', 'high', 'low', 'close', 'volume', 'turnover', 'amplitude', 'change_pct', 'change_amount', 'turnover_rate']
-                elif len(data.columns) >= 6:
-                    # 使用原始列名，只重命名前6列
-                    new_columns = ['date', 'open', 'high', 'low', 'close', 'volume']
-                    for i in range(6, len(data.columns)):
-                        new_columns.append(f'col_{i}')
-                    data.columns = new_columns
+        max_retries = 5  # 增加重试次数
 
-                data['date'] = pd.to_datetime(data['date'])
-            else:
-                logger.error(f"历史数据列数不足: {len(data.columns)}")
-                return pd.DataFrame()
+        for attempt in range(max_retries):
+            try:
+                # 简单的内存缓存key
+                cache_key = f"{stock_code}_{days}"
+                cache_time = 3600  # 缓存1小时
 
-            return data
-        except Exception as e:
-            logger.error(f"获取股票 {stock_code} 历史数据失败: {e}")
-            return pd.DataFrame()
+                # 检查内存缓存
+                if not hasattr(self, '_hist_cache'):
+                    self._hist_cache = {}
+
+                if cache_key in self._hist_cache:
+                    cached_data, cached_time = self._hist_cache[cache_key]
+                    if time.time() - cached_time < cache_time:
+                        return cached_data
+
+                # 添加随机延迟
+                if attempt > 0:
+                    self._random_delay(0.5, 1.5)
+
+                # 构造腾讯财经历史数据API请求
+                # 确定市场代码
+                if stock_code.startswith('6'):
+                    market = 'sh'
+                elif stock_code.startswith('0') or stock_code.startswith('3'):
+                    market = 'sz'
+                elif stock_code.startswith('688'):
+                    market = 'sh'
+                else:
+                    market = 'sz'
+
+                symbol = f"{market}{stock_code}"
+
+                # 腾讯财经日K线数据接口
+                # 获取更多天数以确保有足够的交易日数据
+                actual_days = int(days * 2)  # 获取更多数据
+
+                url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+                params = {
+                    'param': f'{symbol},day,,,{actual_days},qfq',  # qfq=前复权
+                    '_var': 'kline_dayqfq'
+                }
+
+                headers = {
+                    'User-Agent': self._get_random_user_agent(),
+                    'Accept': '*/*',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Connection': 'keep-alive',
+                    'Referer': 'https://gu.qq.com/'
+                }
+
+                response = requests.get(url, params=params, headers=headers, timeout=20)
+
+                if response.status_code == 200:
+                    content = response.text
+
+                    # 解析腾讯返回的数据（JSON格式，带JavaScript变量名）
+                    if 'kline_dayqfq=' in content:
+                        json_str = content.replace('kline_dayqfq=', '')
+                        import json
+                        data_json = json.loads(json_str)
+
+                        if 'data' in data_json and symbol in data_json['data']:
+                            kline_data = data_json['data'][symbol]
+
+                            if 'qfqday' in kline_data and kline_data['qfqday']:
+                                # 解析K线数据
+                                # 数据格式: ['日期', '开盘', '收盘', '最高', '最低', '成交量']
+                                klines = kline_data['qfqday']
+
+                                if not klines:
+                                    if attempt < max_retries - 1:
+                                        backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                                        logger.debug(f"股票 {stock_code} 历史数据为空，等待 {backoff_time:.2f} 秒后重试...")
+                                        time.sleep(backoff_time)
+                                        continue
+                                    return pd.DataFrame()
+
+                                # 转换为DataFrame
+                                df_data = []
+                                for kline in klines:
+                                    # kline格式: ['2024-01-01', '10.50', '10.80', '10.90', '10.40', '1000000']
+                                    df_data.append({
+                                        'date': kline[0],
+                                        'open': float(kline[1]),
+                                        'close': float(kline[2]),
+                                        'high': float(kline[3]),
+                                        'low': float(kline[4]),
+                                        'volume': float(kline[5]) if len(kline) > 5 else 0
+                                    })
+
+                                data = pd.DataFrame(df_data)
+                                data['date'] = pd.to_datetime(data['date'])
+
+                                # 只保留最近指定天数的数据
+                                if len(data) > days:
+                                    data = data.tail(days)
+
+                                # 存入缓存
+                                self._hist_cache[cache_key] = (data, time.time())
+
+                                return data
+
+                # 如果响应不成功，等待后重试
+                if attempt < max_retries - 1:
+                    backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                    logger.debug(f"股票 {stock_code} 历史数据获取失败，等待 {backoff_time:.2f} 秒后重试...")
+                    time.sleep(backoff_time)
+                    continue
+
+            except Exception as e:
+                logger.warning(f"获取股票 {stock_code} 历史数据失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(backoff_time)
+                    continue
+
+        # 所有重试失败后记录
+        if stock_code not in self.failed_stocks:
+            self.failed_stocks.append(stock_code)
+        logger.error(f"获取股票 {stock_code} 历史数据失败，已重试 {max_retries} 次")
+        return pd.DataFrame()
 
     def calculate_momentum(self, price_data: pd.DataFrame, days: int = 20) -> float:
         """计算股票动量指标"""
@@ -294,14 +624,22 @@ class StockDataFetcher:
                 'error': str(e)
             }
 
-    def batch_get_stock_data(self, stock_codes: List[str], calculate_momentum: bool = True) -> List[Dict]:
-        """批量获取股票数据"""
+    def batch_get_stock_data(self, stock_codes: List[str], calculate_momentum: bool = True,
+                            include_fundamental: bool = True) -> List[Dict]:
+        """批量获取股票数据 - 带失败重试机制,包含基本面数据"""
         results = []
         seen_codes = set()  # 用于去重
 
         # 统计动量计算情况
         momentum_success = 0
         momentum_fail = 0
+
+        # 统计基本面数据获取情况
+        fundamental_success = 0
+        fundamental_fail = 0
+
+        # 清空失败列表
+        self.failed_stocks = []
 
         for i, code in enumerate(stock_codes):
             try:
@@ -337,21 +675,40 @@ class StockDataFetcher:
                 else:
                     realtime_data['momentum_20d'] = 0
 
+                # 获取基本面数据
+                if include_fundamental:
+                    try:
+                        fundamental_data = self.get_stock_fundamental_data(code)
+                        if fundamental_data:
+                            realtime_data.update(fundamental_data)
+                            # 判断是否成功获取了关键指标
+                            if fundamental_data.get('roe') is not None or fundamental_data.get('pb_ratio') is not None:
+                                fundamental_success += 1
+                            else:
+                                fundamental_fail += 1
+                        else:
+                            fundamental_fail += 1
+                    except Exception as e:
+                        logger.warning(f"获取 {code} 基本面数据失败: {e}")
+                        fundamental_fail += 1
+
                 results.append(realtime_data)
                 seen_codes.add(code)  # 记录已处理的股票代码
 
-                # 增加请求间隔时间，防止被限流
-                # 每处理5只股票增加一个较长的间隔（因为要获取历史数据）
+                # 优化请求间隔时间，更好地防止限流
+                # 使用随机延迟模拟人工操作
                 if calculate_momentum:
-                    if (i + 1) % 5 == 0:
-                        time.sleep(2.0)  # 处理5只后暂停2秒
+                    if (i + 1) % 3 == 0:
+                        # 每处理3只股票暂停较长时间
+                        self._random_delay(1.5, 3.0)
                     else:
-                        time.sleep(0.5)  # 正常间隔0.5秒
+                        # 正常随机间隔
+                        self._random_delay(0.5, 1.2)
                 else:
                     if (i + 1) % 10 == 0:
-                        time.sleep(1.0)  # 处理10只后暂停1秒
+                        self._random_delay(1.0, 2.0)
                     else:
-                        time.sleep(0.2)  # 正常间隔0.2秒
+                        self._random_delay(0.3, 0.8)
 
             except Exception as e:
                 logger.error(f"批量获取股票 {code} 数据失败: {e}")
@@ -360,4 +717,60 @@ class StockDataFetcher:
         logger.info(f"批量获取完成，去重前: {len(stock_codes)}只，去重后: {len(results)}只")
         if calculate_momentum:
             logger.info(f"20日动量计算结果: 成功{momentum_success}只，失败{momentum_fail}只")
+        if include_fundamental:
+            logger.info(f"基本面数据获取结果: 成功{fundamental_success}只，失败{fundamental_fail}只")
+
+        # 如果有失败的股票，尝试重新获取
+        if self.failed_stocks:
+            logger.info(f"检测到 {len(self.failed_stocks)} 只失败股票，准备重试...")
+            retry_results = self._retry_failed_stocks(calculate_momentum)
+            results.extend(retry_results)
+            logger.info(f"重试完成，成功恢复 {len(retry_results)} 只股票数据")
+
         return results
+
+    def _retry_failed_stocks(self, calculate_momentum: bool = True) -> List[Dict]:
+        """重试失败的股票"""
+        retry_results = []
+        failed_codes = self.failed_stocks.copy()
+        self.failed_stocks = []  # 清空失败列表
+
+        logger.info(f"开始重试 {len(failed_codes)} 只失败股票...")
+
+        # 等待一段时间再重试
+        logger.info("等待10秒后开始重试...")
+        time.sleep(10)
+
+        for i, code in enumerate(failed_codes):
+            try:
+                # 获取实时数据
+                realtime_data = self.get_stock_realtime_data(code)
+                if not realtime_data:
+                    continue
+
+                # 计算20日动量
+                if calculate_momentum:
+                    try:
+                        historical_data = self.get_stock_historical_data(code, days=30)
+                        if not historical_data.empty and len(historical_data) >= 20:
+                            momentum = self.calculate_momentum(historical_data, days=20)
+                            realtime_data['momentum_20d'] = momentum
+                        else:
+                            realtime_data['momentum_20d'] = 0
+                    except Exception as e:
+                        logger.warning(f"重试计算 {code} 动量失败: {e}")
+                        realtime_data['momentum_20d'] = 0
+                else:
+                    realtime_data['momentum_20d'] = 0
+
+                retry_results.append(realtime_data)
+                logger.info(f"重试成功: {code} ({i+1}/{len(failed_codes)})")
+
+                # 重试时使用更保守的延迟
+                self._random_delay(2.0, 4.0)
+
+            except Exception as e:
+                logger.error(f"重试股票 {code} 仍然失败: {e}")
+                continue
+
+        return retry_results

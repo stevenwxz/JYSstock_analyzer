@@ -321,12 +321,15 @@ class MarketAnalyzer:
             if selected_stocks:
                 md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
 
-| 排名 | 股票名称 | 代码 | PE | 涨跌幅 | 评分 | 成交额(万) |
-|------|----------|------|----|---------|----- |-----------|
+| 排名 | 股票名称 | 代码 | PE | ROE | 涨跌幅 | 评分 | 评级 | 成交额(万) |
+|------|----------|------|----|----- |---------|------|------|-----------|
 """
-                
+
                 for stock in selected_stocks:
-                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | - |\n"
+                    turnover_display = f"{stock.get('turnover', 0):.0f}" if stock.get('turnover') else "-"
+                    roe_display = f"{stock.get('roe', 0):.1f}%" if stock.get('roe') else "-"
+                    grade = stock.get('strength_grade', '-')
+                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {turnover_display} |\n"
             
             # 添加筛选统计
             md_content += f"""

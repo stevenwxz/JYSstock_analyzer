@@ -137,6 +137,8 @@ class EmailSender:
                     .positive {{ color: #388e3c; font-weight: bold; }}
                     .negative {{ color: #d32f2f; font-weight: bold; }}
                     .neutral {{ color: #757575; }}
+                    .excellent {{ color: #1565c0; font-weight: bold; }}
+                    .good {{ color: #388e3c; font-weight: bold; }}
 
                     .stock-card {{
                         background: white;
@@ -326,8 +328,10 @@ class EmailSender:
                                 <th>股票名称</th>
                                 <th>代码</th>
                                 <th>PE</th>
+                                <th>ROE</th>
                                 <th>涨跌幅</th>
                                 <th>评分</th>
+                                <th>评级</th>
                                 <th>成交额(万)</th>
                             </tr>
                 """
@@ -337,6 +341,10 @@ class EmailSender:
                     change_class = "positive" if change_pct > 0 else "negative" if change_pct < 0 else "neutral"
                     turnover = stock.get('turnover', 0)
                     turnover_mark = " ⭐" if turnover > 10000 else ""
+                    roe = stock.get('roe', 0)
+                    roe_display = f"{roe:.1f}%" if roe else "-"
+                    roe_class = "excellent" if roe and roe > 20 else "good" if roe and roe > 15 else ""
+                    grade = stock.get('strength_grade', '-')
 
                     html += f"""
                             <tr>
@@ -344,8 +352,10 @@ class EmailSender:
                                 <td>{stock.get('name', '')}</td>
                                 <td>{stock.get('code', '')}</td>
                                 <td>{stock.get('pe_ratio', 0):.2f}</td>
+                                <td class="{roe_class}">{roe_display}</td>
                                 <td class="{change_class}">{change_pct:+.2f}%</td>
                                 <td>{stock.get('strength_score', 0):.0f}</td>
+                                <td><strong>{grade}</strong></td>
                                 <td>{turnover:.0f}{turnover_mark}</td>
                             </tr>
                     """
