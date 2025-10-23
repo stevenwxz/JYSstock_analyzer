@@ -103,6 +103,19 @@ def main():
                     print(f"   PE: {stock.get('pe_ratio', 0):.2f}")
                     print(f"   20日动量: {stock.get('momentum_20d', 0):.2f}%")
                     print(f"   强势分数: {stock.get('strength_score', 0):.1f}")
+                    
+                    # 显示分项得分
+                    score_detail = stock.get('strength_score_detail', {})
+                    if score_detail:
+                        breakdown = score_detail.get('breakdown', {})
+                        print(f"   分项得分:")
+                        print(f"     - 技术面: {breakdown.get('technical', 0)}分")
+                        print(f"     - 估值: {breakdown.get('valuation', 0)}分")
+                        print(f"     - 盈利能力: {breakdown.get('profitability', 0)}分")
+                        print(f"     - 安全性: {breakdown.get('safety', 0)}分")
+                        print(f"     - 股息: {breakdown.get('dividend', 0)}分")
+                        print(f"   评级: {score_detail.get('grade', '')}")
+                    
                     print(f"   理由: {stock.get('selection_reason', '')}")
                     print()
 

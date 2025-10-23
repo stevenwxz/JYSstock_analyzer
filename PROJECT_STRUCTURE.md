@@ -86,11 +86,18 @@ class StockDataFetcher:
 
 ```python
 class StockFilter:
-    - calculate_strength_score()     # 计算强势分数
+    - calculate_strength_score()     # 计算强势分数（包含分项得分）
     - filter_by_pe_ratio()          # PE筛选
     - filter_by_strength()          # 强势筛选
     - select_top_stocks()           # 选择TOP3
 ```
+
+**分项得分说明**:
+- **技术面 (30分)**: 涨跌幅、动量、成交额活跃度
+- **估值 (25分)**: PE、PB、PEG等估值指标
+- **盈利能力 (30分)**: ROE、利润增长率等盈利指标
+- **安全性 (10分)**: PB安全边际、股息率稳定性、换手率波动性
+- **股息 (5分)**: 股息率得分
 
 #### 3. 回测引擎 (`run_backtest_optimized.py`)
 

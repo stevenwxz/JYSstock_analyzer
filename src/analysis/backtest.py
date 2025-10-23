@@ -91,6 +91,15 @@ class BacktestAnalyzer:
             for code in stock_list:
                 data = self.get_historical_data_for_date(code, analysis_date)
                 if data:
+                    # 计算基本面数据（模拟）
+                    # 注意：在真实回测中，这些数据需要从历史数据中获取
+                    data['roe'] = 12.0 + np.random.uniform(-3, 3)  # 随机ROE
+                    data['profit_growth'] = 15.0 + np.random.uniform(-5, 5)  # 随机利润增长率
+                    data['dividend_yield'] = 2.0 + np.random.uniform(-1, 2)  # 随机股息率
+                    data['turnover_rate'] = 1.5 + np.random.uniform(-1, 2)  # 随机换手率
+                    data['pb_ratio'] = 1.5 + np.random.uniform(-0.5, 1.0)  # 随机PB
+                    data['peg'] = 0.8 + np.random.uniform(-0.3, 0.5)  # 随机PEG
+                    
                     stock_data.append(data)
                     logger.info(f"获取到 {code} 的数据: ¥{data['price']:.2f}")
 

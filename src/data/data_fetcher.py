@@ -506,7 +506,7 @@ class StockDataFetcher:
             return 0
 
     def get_market_overview(self) -> Dict:
-        """获取市场概况 - 使用腾讯财经API"""
+        """获取市场概况 - 真实统计全市场涨跌数据"""
         try:
             import requests
 
@@ -514,14 +514,17 @@ class StockDataFetcher:
                 # 使用腾讯财经API获取市场概况
                 logger.info("正在获取市场概况数据(腾讯财经API)...")
 
-                # 获取市场行情数据
-                url = "https://qt.gtimg.cn/q=sh000001,sz399001,sz399006,s_sh000001,s_sz399001,s_sz399006"
-                headers = {'User-Agent': 'Mozilla/5.0'}
+                # 先获取主要指数数据
+                url = "https://qt.gtimg.cn/q=sh000001,sz399001,sz399006"
+                headers = {
+                    'User-Agent': self._get_random_user_agent(),
+                    'Referer': 'https://gu.qq.com/'
+                }
                 response = requests.get(url, headers=headers, timeout=10)
 
+                index_data = []
                 if response.status_code == 200 and 'v_' in response.text:
                     lines = response.text.strip().split(';')
-                    index_data = []
 
                     for line in lines:
                         if 'v_' in line and '~' in line:
@@ -534,51 +537,111 @@ class StockDataFetcher:
                                     'price': float(parts[3]) if parts[3] else 0
                                 })
 
-                    if index_data:
-                        # 计算平均涨跌幅
-                        avg_change = sum(d['change_pct'] for d in index_data[:3]) / 3  # 使用前3个主要指数
+                # 计算平均指数涨跌幅
+                avg_change = sum(d['change_pct'] for d in index_data[:3]) / 3 if index_data else 0
 
-                        # 使用A股列表获取总数
-                        stock_list = self.get_a_share_list()
-                        total_stocks = len(stock_list) if not stock_list.empty else 5200
+                # 获取A股列表
+                logger.info("正在获取全市场A股列表...")
+                stock_list = self.get_a_share_list()
 
-                        # 根据指数涨跌更准确地估算涨跌股票比例
-                        # 使用更精确的算法:基于历史数据的回归模型
-                        if avg_change > 1.5:
-                            rising_ratio = min(70.0, 50 + avg_change * 8)
-                        elif avg_change > 0.5:
-                            rising_ratio = 50.0 + avg_change * 10
-                        elif avg_change > 0:
-                            rising_ratio = 45.0 + avg_change * 15
-                        elif avg_change > -0.5:
-                            rising_ratio = 45.0 + avg_change * 15
-                        elif avg_change > -1.5:
-                            rising_ratio = max(30.0, 50 + avg_change * 10)
+                if stock_list.empty:
+                    logger.warning("无法获取A股列表,使用兜底数据")
+                    raise Exception("获取A股列表失败")
+
+                total_stocks = len(stock_list)
+                logger.info(f"获取到 {total_stocks} 只A股,准备统计涨跌情况...")
+
+                # 真实统计全市场涨跌股票数
+                rising_stocks = 0
+                falling_stocks = 0
+                flat_stocks = 0
+                success_count = 0
+
+                # 批量获取股票涨跌数据
+                stock_codes = stock_list['code'].tolist()
+
+                # 使用腾讯API批量查询(每次最多800只)
+                batch_size = 800
+
+                for i in range(0, len(stock_codes), batch_size):
+                    batch = stock_codes[i:i+batch_size]
+
+                    # 构造批量查询符号
+                    symbols = []
+                    for code in batch:
+                        if code.startswith('6'):
+                            symbols.append(f"sh{code}")
                         else:
-                            rising_ratio = max(25.0, 50 + avg_change * 8)
+                            symbols.append(f"sz{code}")
 
-                        rising_stocks = int(total_stocks * rising_ratio / 100)
-                        falling_ratio = 100 - rising_ratio - 5  # 假设5%平盘
-                        falling_stocks = int(total_stocks * falling_ratio / 100)
+                    # 批量查询
+                    batch_url = f"https://qt.gtimg.cn/q={','.join(symbols)}"
 
-                        overview = {
-                            'total_stocks': total_stocks,
-                            'rising_stocks': rising_stocks,
-                            'falling_stocks': falling_stocks,
-                            'rising_ratio': rising_ratio,
-                            'avg_change_pct': avg_change,
-                            'update_time': datetime.now(),
-                            'data_source': '腾讯财经指数',
-                            'indices': index_data,
-                            'note': '基于主要指数估算涨跌股票数'
-                        }
+                    try:
+                        batch_response = requests.get(batch_url, headers=headers, timeout=30)
 
-                        logger.info(f"获取市场数据成功: 总数{total_stocks}, 估算上涨{rising_stocks}({rising_ratio:.1f}%), 估算下跌{falling_stocks}")
-                        logger.info(f"   指数平均涨跌: {avg_change:+.2f}%")
-                        return overview
+                        if batch_response.status_code == 200:
+                            lines = batch_response.text.strip().split(';')
+
+                            for line in lines:
+                                if 'v_' in line and '~' in line:
+                                    try:
+                                        data_str = line.split('"')[1]
+                                        parts = data_str.split('~')
+
+                                        if len(parts) > 32:
+                                            change_pct = float(parts[32]) if parts[32] else 0
+
+                                            if change_pct > 0:
+                                                rising_stocks += 1
+                                            elif change_pct < 0:
+                                                falling_stocks += 1
+                                            else:
+                                                flat_stocks += 1
+
+                                            success_count += 1
+                                    except Exception as parse_error:
+                                        continue
+
+                        # 显示进度
+                        progress = min(i + batch_size, len(stock_codes))
+                        logger.info(f"市场统计进度: {progress}/{len(stock_codes)} ({progress/len(stock_codes)*100:.1f}%)")
+
+                        # 批次间延迟,避免限流
+                        if i + batch_size < len(stock_codes):
+                            time.sleep(0.5)
+
+                    except Exception as batch_error:
+                        logger.warning(f"批次 {i}-{i+batch_size} 获取失败: {batch_error}")
+                        continue
+
+                # 计算统计数据
+                if success_count > 0:
+                    rising_ratio = (rising_stocks / success_count) * 100
+
+                    overview = {
+                        'total_stocks': total_stocks,
+                        'rising_stocks': rising_stocks,
+                        'falling_stocks': falling_stocks,
+                        'flat_stocks': flat_stocks,
+                        'rising_ratio': rising_ratio,
+                        'avg_change_pct': avg_change,
+                        'update_time': datetime.now(),
+                        'data_source': '腾讯财经实时数据',
+                        'indices': index_data,
+                        'note': f'真实统计{success_count}只股票涨跌数据',
+                        'success_count': success_count
+                    }
+
+                    logger.info(f"获取市场数据成功: 总数{total_stocks}, 上涨{rising_stocks}({rising_ratio:.2f}%), 下跌{falling_stocks}")
+                    logger.info(f"   指数平均涨跌: {avg_change:+.2f}%")
+                    return overview
+                else:
+                    logger.warning("未能成功获取任何股票数据,使用兜底方案")
+                    raise Exception("统计失败")
 
             except Exception as tencent_error:
-                logger.warning(f"腾讯财经API获取失败，使用兜底数据: {tencent_error}")
+                logger.warning(f"真实统计失败，使用兜底数据: {tencent_error}")
 
             # 如果实时数据失败，返回基于历史的模拟概况
             stock_list = self.get_a_share_list()

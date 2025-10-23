@@ -305,31 +305,62 @@ class MarketAnalyzer:
 
 """
             
-            # 添加每只股票的详细信息
-            for stock in selected_stocks:
-                trend = "↗" if stock.get('change_pct', 0) > 0 else "↘" if stock.get('change_pct', 0) < 0 else "→"
-                md_content += f"""### #{stock.get('rank', 0)} {stock['name']} ({stock['code']}) [{trend}]
-- **价格**: ¥{stock.get('price', 0):.2f}
-- **涨跌幅**: {stock.get('change_pct', 0):+.2f}%
-- **PE**: {stock.get('pe_ratio', 0):.2f}倍
-- **强势分数**: {stock.get('strength_score', 0):.0f}分
-- **选择理由**: {stock.get('selection_reason', '符合筛选条件')}
-
+            # 添加每只股票的详细信息
+            for stock in selected_stocks:
+                trend = "↗" if stock.get('change_pct', 0) > 0 else "↘" if stock.get('change_pct', 0) < 0 else "→"
+                md_content += f"""### #{stock.get('rank', 0)} {stock['name']} ({stock['code']}) [{trend}]
+- **价格**: ¥{stock.get('price', 0):.2f}
+- **涨跌幅**: {stock.get('change_pct', 0):+.2f}%
+- **PE**: {stock.get('pe_ratio', 0):.2f}倍
+- **强势分数**: {stock.get('strength_score', 0):.0f}分
+"""
+                
+                # 添加分项得分
+                score_detail = stock.get('strength_score_detail', {})
+                if score_detail:
+                    breakdown = score_detail.get('breakdown', {})
+                    md_content += f"""- **分项得分**:
+  - 技术面: {breakdown.get('technical', 0)}分
+  - 估值: {breakdown.get('valuation', 0)}分
+  - 盈利能力: {breakdown.get('profitability', 0)}分
+  - 安全性: {breakdown.get('safety', 0)}分
+  - 股息: {breakdown.get('dividend', 0)}分
+- **评级**: {score_detail.get('grade', '')}
+"""
+                
+                md_content += f"""- **选择理由**: {stock.get('selection_reason', '符合筛选条件')}
+
 """
             
             # 添加候选股票表格
             if selected_stocks:
                 md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
 
-| 排名 | 股票名称 | 代码 | PE | ROE | 涨跌幅 | 评分 | 评级 | 成交额(万) |
-|------|----------|------|----|----- |---------|------|------|-----------|
+| 排名 | 股票名称 | 代码 | PE | ROE | 涨跌幅 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 | 成交额(万) |
+|------|----------|------|----|----- |---------|------|------|--------|------|------|------|------|-----------|
 """
 
                 for stock in selected_stocks:
                     turnover_display = f"{stock.get('turnover', 0):.0f}" if stock.get('turnover') else "-"
                     roe_display = f"{stock.get('roe', 0):.1f}%" if stock.get('roe') else "-"
                     grade = stock.get('strength_grade', '-')
-                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {turnover_display} |\n"
+                    
+                    # 获取分项得分
+                    score_detail = stock.get('strength_score_detail', {})
+                    tech_score = 0
+                    val_score = 0
+                    prof_score = 0
+                    safe_score = 0
+                    div_score = 0
+                    if score_detail:
+                        breakdown = score_detail.get('breakdown', {})
+                        tech_score = breakdown.get('technical', 0)
+                        val_score = breakdown.get('valuation', 0)
+                        prof_score = breakdown.get('profitability', 0)
+                        safe_score = breakdown.get('safety', 0)
+                        div_score = breakdown.get('dividend', 0)
+                    
+                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} | {turnover_display} |\n"
             
             # 添加筛选统计
             md_content += f"""
@@ -361,11 +392,26 @@ class MarketAnalyzer:
 """
             
             for i, stock in enumerate(selected_stocks, 1):
+                # 获取分项得分中的最高分
+                score_detail = stock.get('strength_score_detail', {})
+                max_score_name = ""
+                max_score_value = 0
+                if score_detail:
+                    breakdown = score_detail.get('breakdown', {})
+                    score_items = [
+                        ("技术面", breakdown.get('technical', 0)),
+                        ("估值", breakdown.get('valuation', 0)),
+                        ("盈利能力", breakdown.get('profitability', 0)),
+                        ("安全性", breakdown.get('safety', 0)),
+                        ("股息", breakdown.get('dividend', 0))
+                    ]
+                    max_score_name, max_score_value = max(score_items, key=lambda x: x[1])
+                
                 md_content += f"""
 {i}. **{stock['name']} ({stock['code']})**
    - **估值水平**: PE {stock.get('pe_ratio', 0):.2f}倍
    - **强势评分**: {stock.get('strength_score', 0):.0f}分
-   - **技术形态**: 符合多维度筛选标准
+   - **优势维度**: {max_score_name} ({max_score_value}分)
 """
             
             md_content += f"""

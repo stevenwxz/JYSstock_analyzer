@@ -134,8 +134,8 @@ class EmailSender:
                     tr:hover {{ background-color: #f5f5f5; }}
 
                     .highlight {{ color: #d32f2f; font-weight: bold; font-size: 18px; }}
-                    .positive {{ color: #388e3c; font-weight: bold; }}
-                    .negative {{ color: #d32f2f; font-weight: bold; }}
+                    .positive {{ color: #d32f2f; font-weight: bold; }}
+                    .negative {{ color: #388e3c; font-weight: bold; }}
                     .neutral {{ color: #757575; }}
                     .excellent {{ color: #1565c0; font-weight: bold; }}
                     .good {{ color: #388e3c; font-weight: bold; }}
@@ -332,6 +332,11 @@ class EmailSender:
                                 <th>涨跌幅</th>
                                 <th>评分</th>
                                 <th>评级</th>
+                                <th>技术面</th>
+                                <th>估值</th>
+                                <th>盈利</th>
+                                <th>安全</th>
+                                <th>股息</th>
                                 <th>成交额(万)</th>
                             </tr>
                 """
@@ -345,6 +350,21 @@ class EmailSender:
                     roe_display = f"{roe:.1f}%" if roe else "-"
                     roe_class = "excellent" if roe and roe > 20 else "good" if roe and roe > 15 else ""
                     grade = stock.get('strength_grade', '-')
+                    
+                    # 获取分项得分
+                    score_detail = stock.get('strength_score_detail', {})
+                    tech_score = 0
+                    val_score = 0
+                    prof_score = 0
+                    safe_score = 0
+                    div_score = 0
+                    if score_detail:
+                        breakdown = score_detail.get('breakdown', {})
+                        tech_score = breakdown.get('technical', 0)
+                        val_score = breakdown.get('valuation', 0)
+                        prof_score = breakdown.get('profitability', 0)
+                        safe_score = breakdown.get('safety', 0)
+                        div_score = breakdown.get('dividend', 0)
 
                     html += f"""
                             <tr>
@@ -356,6 +376,11 @@ class EmailSender:
                                 <td class="{change_class}">{change_pct:+.2f}%</td>
                                 <td>{stock.get('strength_score', 0):.0f}</td>
                                 <td><strong>{grade}</strong></td>
+                                <td>{tech_score}</td>
+                                <td>{val_score}</td>
+                                <td>{prof_score}</td>
+                                <td>{safe_score}</td>
+                                <td>{div_score}</td>
                                 <td>{turnover:.0f}{turnover_mark}</td>
                             </tr>
                     """
