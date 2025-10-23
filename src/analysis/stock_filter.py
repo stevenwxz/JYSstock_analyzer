@@ -106,17 +106,40 @@ class StockFilter:
             elif profit_growth and profit_growth > 0:
                 score_breakdown['profitability'] += 4
 
-            # ===== 4. 安全性得分 (10分) =====
-            # 4.1 资产负债率 (10分)
-            debt_ratio = stock_data.get('debt_ratio', 0)
-            if debt_ratio and debt_ratio < 30:
-                score_breakdown['safety'] += 10
-            elif debt_ratio and debt_ratio < 50:
-                score_breakdown['safety'] += 7
-            elif debt_ratio and debt_ratio < 70:
+            # ===== 4. 安全性得分 (10分) - 基于现有数据的简化评分 =====
+            # 由于资产负债率等财务数据无法获取,使用现有指标构建安全性评分
+
+            # 4.1 基于PB的安全边际 (4分)
+            pb = stock_data.get('pb_ratio', 0)
+            if pb and 0 < pb < 1.2:  # 破净或接近破净,安全边际高
                 score_breakdown['safety'] += 4
-            elif debt_ratio and debt_ratio < 80:
+            elif pb and 1.2 <= pb < 2.0:  # 合理估值
+                score_breakdown['safety'] += 3
+            elif pb and 2.0 <= pb < 3.0:  # 估值适中
                 score_breakdown['safety'] += 2
+            elif pb and 3.0 <= pb < 5.0:  # 估值偏高,风险增加
+                score_breakdown['safety'] += 1
+            # pb > 5.0 不得分
+
+            # 4.2 基于股息率的稳定性 (3分)
+            div_yield = stock_data.get('dividend_yield', 0)
+            if div_yield and div_yield > 5:  # 高分红,经营稳定
+                score_breakdown['safety'] += 3
+            elif div_yield and div_yield > 3:
+                score_breakdown['safety'] += 2
+            elif div_yield and div_yield > 1:
+                score_breakdown['safety'] += 1
+            # 不分红或分红很低不得分
+
+            # 4.3 基于换手率的波动性 (3分)
+            turnover_rate = stock_data.get('turnover_rate', 0)
+            if turnover_rate and 0 < turnover_rate < 2:  # 低换手,筹码稳定
+                score_breakdown['safety'] += 3
+            elif turnover_rate and 2 <= turnover_rate < 5:  # 换手适中
+                score_breakdown['safety'] += 2
+            elif turnover_rate and 5 <= turnover_rate < 10:  # 换手偏高
+                score_breakdown['safety'] += 1
+            # 换手率 > 10% 说明投机性强,不得分
 
             # ===== 5. 分红得分 (5分) =====
             dividend_yield = stock_data.get('dividend_yield', 0)
@@ -293,7 +316,8 @@ class StockFilter:
         # 基本面指标
         roe = stock.get('roe', 0)
         profit_growth = stock.get('profit_growth', 0)
-        debt_ratio = stock.get('debt_ratio', 0)
+        dividend_yield = stock.get('dividend_yield', 0)
+        turnover_rate = stock.get('turnover_rate', 0)
 
         # 估值
         if pe_ratio:
@@ -323,8 +347,12 @@ class StockFilter:
         elif profit_growth and profit_growth > 10:
             reasons.append(f"成长性好({profit_growth:.1f}%)")
 
-        if debt_ratio and debt_ratio < 50:
-            reasons.append("财务稳健")
+        # 安全性 - 基于新的评分逻辑
+        safety_score = stock.get('strength_score_detail', {}).get('breakdown', {}).get('safety', 0)
+        if safety_score >= 8:
+            reasons.append("安全性高")
+        elif safety_score >= 6:
+            reasons.append("安全性良好")
 
         # 综合评分
         reasons.append(f"综合{strength_grade}级({strength_score:.1f}分)")
