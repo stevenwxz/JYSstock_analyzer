@@ -56,32 +56,37 @@ class StockFilter:
                 score_breakdown['technical'] += 1
 
             # ===== 2. 估值得分 (25分) =====
-            # 2.1 PE (10分)
+            # 2.1 PE估值 (10分) - 按10,20,30区分
             pe = stock_data.get('pe_ratio', 0)
-            if pe and 0 < pe < 15:
+            if pe and 0 < pe < 10:
                 score_breakdown['valuation'] += 10
-            elif pe and 15 <= pe < 25:
+            elif pe and 10 <= pe < 20:
                 score_breakdown['valuation'] += 7
-            elif pe and 25 <= pe < 35:
+            elif pe and 20 <= pe < 30:
                 score_breakdown['valuation'] += 4
+            # PE >= 30 不得分
 
-            # 2.2 PB (8分)
+            # 2.2 PB估值 (10分) - 从"便宜"角度评分,范围宽松
             pb = stock_data.get('pb_ratio', 0)
-            if pb and 0 < pb < 2:
+            if pb and 0 < pb < 2:      # 低估
+                score_breakdown['valuation'] += 10
+            elif pb and 2 <= pb < 4:   # 合理
                 score_breakdown['valuation'] += 8
-            elif pb and 2 <= pb < 3:
+            elif pb and 4 <= pb < 7:   # 适中
                 score_breakdown['valuation'] += 5
-            elif pb and 3 <= pb < 5:
+            elif pb and 7 <= pb < 10:  # 偏高
                 score_breakdown['valuation'] += 2
+            # PB >= 10 不得分
 
-            # 2.3 PEG (7分)
+            # 2.3 PEG (5分) - 降低权重,因为是估算值
             peg = stock_data.get('peg', 0)
             if peg and 0 < peg < 1:
-                score_breakdown['valuation'] += 7
+                score_breakdown['valuation'] += 5
             elif peg and 1 <= peg < 1.5:
-                score_breakdown['valuation'] += 4
+                score_breakdown['valuation'] += 3
             elif peg and 1.5 <= peg < 2:
-                score_breakdown['valuation'] += 2
+                score_breakdown['valuation'] += 1
+            # PEG >= 2 不得分
 
             # ===== 3. 盈利质量得分 (30分) - 核心 =====
             # 3.1 ROE (15分)
@@ -109,17 +114,15 @@ class StockFilter:
             # ===== 4. 安全性得分 (10分) - 基于现有数据的简化评分 =====
             # 由于资产负债率等财务数据无法获取,使用现有指标构建安全性评分
 
-            # 4.1 基于PB的安全边际 (4分)
+            # 4.1 基于PB的安全边际 (3分) - 从"安全"角度评分,范围严格
             pb = stock_data.get('pb_ratio', 0)
-            if pb and 0 < pb < 1.2:  # 破净或接近破净,安全边际高
-                score_breakdown['safety'] += 4
-            elif pb and 1.2 <= pb < 2.0:  # 合理估值
+            if pb and 0 < pb < 1.0:  # 破净,极度安全
                 score_breakdown['safety'] += 3
-            elif pb and 2.0 <= pb < 3.0:  # 估值适中
+            elif pb and 1.0 <= pb < 1.5:  # 接近破净,很安全
                 score_breakdown['safety'] += 2
-            elif pb and 3.0 <= pb < 5.0:  # 估值偏高,风险增加
+            elif pb and 1.5 <= pb < 2.5:  # 低估值区,有安全边际
                 score_breakdown['safety'] += 1
-            # pb > 5.0 不得分
+            # PB >= 2.5 安全性不加分
 
             # 4.2 基于股息率的稳定性 (3分)
             div_yield = stock_data.get('dividend_yield', 0)
@@ -129,17 +132,17 @@ class StockFilter:
                 score_breakdown['safety'] += 2
             elif div_yield and div_yield > 1:
                 score_breakdown['safety'] += 1
-            # 不分红或分红很低不得分
+            # 股息率 <= 1% 不得分
 
-            # 4.3 基于换手率的波动性 (3分)
+            # 4.3 基于换手率的波动性 (4分) - 增加权重
             turnover_rate = stock_data.get('turnover_rate', 0)
             if turnover_rate and 0 < turnover_rate < 2:  # 低换手,筹码稳定
-                score_breakdown['safety'] += 3
+                score_breakdown['safety'] += 4
             elif turnover_rate and 2 <= turnover_rate < 5:  # 换手适中
-                score_breakdown['safety'] += 2
+                score_breakdown['safety'] += 3
             elif turnover_rate and 5 <= turnover_rate < 10:  # 换手偏高
                 score_breakdown['safety'] += 1
-            # 换手率 > 10% 说明投机性强,不得分
+            # 换手率 >= 10% 说明投机性强,不得分
 
             # ===== 5. 分红得分 (5分) =====
             dividend_yield = stock_data.get('dividend_yield', 0)
