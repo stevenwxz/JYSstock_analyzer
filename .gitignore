@@ -10,13 +10,16 @@ ENV/
 build/
 dist/
 *.egg-info/
+*.egg
 
 # 项目特定
 .env
 cache/
 *.log
+*.pkl
 
 # 日志目录
+logs/
 logs/analysis/*.json
 logs/backtest/*.json
 logs/system/*.log
@@ -24,7 +27,7 @@ logs/system/*.log
 # 报告目录（生成的报告文件）
 reports/*.md
 
-# 废弃脚本
+# 脚本目录
 scripts/
 
 # 备份文件
@@ -41,6 +44,8 @@ scripts/
 # 系统文件
 .DS_Store
 Thumbs.db
+Desktop.ini
+$null
 
 # 测试
 .pytest_cache/
@@ -50,3 +55,12 @@ htmlcov/
 # 临时文件
 *.tmp
 *.temp
+
+# 数据文件
+data/
+*.csv
+*.xlsx
+*.xls
+
+# 系统缓存
+.DS_Store

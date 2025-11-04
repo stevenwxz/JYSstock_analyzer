@@ -6,6 +6,12 @@ import logging
 import random
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
+import sys
+import os
+
+# 添加config路径
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from config.dividend_override import get_manual_dividend_yield, has_manual_override
 
 logger = logging.getLogger(__name__)
 
@@ -99,13 +105,21 @@ class StockDataFetcher:
                         data_str = content.split('"')[1]
                         data_parts = data_str.split('~')
 
-                        if len(data_parts) > 39:
+                        if len(data_parts) > 56:
                             name = data_parts[1]
                             price = float(data_parts[3]) if data_parts[3] else 0
                             change_pct = float(data_parts[32]) if data_parts[32] else 0
                             pe_str = data_parts[39] if len(data_parts) > 39 else None
                             volume = int(float(data_parts[6])) if data_parts[6] else 0
                             turnover = int(float(data_parts[37])) if len(data_parts) > 37 and data_parts[37] else 0
+                            
+                            # 获取换手率数据
+                            turnover_rate = None
+                            if data_parts[56]:
+                                try:
+                                    turnover_rate = float(data_parts[56])
+                                except (ValueError, IndexError):
+                                    pass
 
                             pe_ratio = None
                             if pe_str and pe_str != '':
@@ -123,7 +137,8 @@ class StockDataFetcher:
                                 'change_pct': change_pct,
                                 'pe_ratio': pe_ratio,
                                 'volume': volume,
-                                'turnover': turnover
+                                'turnover': turnover,
+                                'turnover_rate': turnover_rate
                             }
 
                 # 如果响应不成功，等待后重试 - 使用指数退避 + 随机抖动
@@ -199,9 +214,14 @@ class StockDataFetcher:
                             except (ValueError, IndexError):
                                 pass
 
-                        # 解析股息率
+                        # 解析股息率 - 优先使用手动配置
                         dividend_yield = None
-                        if data_parts[52]:
+                        # 首先检查是否有手动配置的股息率
+                        manual_dividend = get_manual_dividend_yield(stock_code)
+                        if manual_dividend is not None:
+                            dividend_yield = manual_dividend
+                            logger.debug(f"{stock_code} 使用手动配置的股息率: {dividend_yield}%")
+                        elif data_parts[52]:
                             try:
                                 dividend_yield = float(data_parts[52])
                                 if dividend_yield < 0:

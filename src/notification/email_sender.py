@@ -267,7 +267,7 @@ class EmailSender:
                         <ul>
                             <li><strong>数据源:</strong> 腾讯财经实时API</li>
                             <li><strong>筛选条件:</strong> PE > 0 且 PE ≤ {selection_criteria.get('max_pe_ratio', 30)}</li>
-                            <li><strong>成交额要求:</strong> ≥ {selection_criteria.get('min_turnover', 5000)}万元</li>
+                            <li><strong>换手率要求:</strong> ≥ {selection_criteria.get('min_turnover_rate', 1)}%</li>
                             <li><strong>强势分数:</strong> ≥ {selection_criteria.get('min_strength_score', 40)}分</li>
                         </ul>
                     </div>
@@ -283,10 +283,11 @@ class EmailSender:
                 for stock in selected_stocks:
                     rank = stock.get('rank', 0)
                     change_pct = stock.get('change_pct', 0)
-                    change_class = "positive" if change_pct > 0 else "negative"
-                    trend_icon = "↗" if change_pct > 0 else "↘" if change_pct < 0 else "→"
-                    turnover = stock.get('turnover', 0)
-
+                    change_class = "positive" if change_pct > 0 else "negative"
+                    trend_icon = "↗" if change_pct > 0 else "↘" if change_pct < 0 else "→"
+                    turnover = stock.get('turnover', 0)
+                    turnover_rate = stock.get('turnover_rate', 0)
+
                     html += f"""
                         <div class="stock-card">
                             <h3>#{rank} {stock.get('name', '')} ({stock.get('code', '')}) {trend_icon}</h3>
@@ -308,8 +309,8 @@ class EmailSender:
                                     <div class="stock-info-value">{stock.get('strength_score', 0):.0f}分</div>
                                 </div>
                                 <div class="stock-info-item">
-                                    <div class="stock-info-label">成交额</div>
-                                    <div class="stock-info-value">{turnover:.0f}万元</div>
+                                    <div class="stock-info-label">换手率</div>
+                                    <div class="stock-info-value">{turnover_rate:.2f}%</div>
                                 </div>
                                 <div class="stock-info-item">
                                     <div class="stock-info-label">20日动量</div>
@@ -337,15 +338,15 @@ class EmailSender:
                                 <th>盈利</th>
                                 <th>安全</th>
                                 <th>股息</th>
-                                <th>成交额(万)</th>
+                                <th>换手率(%)</th>
                             </tr>
                 """
 
                 for stock in selected_stocks:
                     change_pct = stock.get('change_pct', 0)
                     change_class = "positive" if change_pct > 0 else "negative" if change_pct < 0 else "neutral"
-                    turnover = stock.get('turnover', 0)
-                    turnover_mark = " ⭐" if turnover > 10000 else ""
+                    turnover_rate = stock.get('turnover_rate', 0)
+                    turnover_mark = " ⭐" if turnover_rate > 5 else ""
                     roe = stock.get('roe', 0)
                     roe_display = f"{roe:.1f}%" if roe else "-"
                     roe_class = "excellent" if roe and roe > 20 else "good" if roe and roe > 15 else ""
@@ -381,7 +382,7 @@ class EmailSender:
                                 <td>{prof_score}</td>
                                 <td>{safe_score}</td>
                                 <td>{div_score}</td>
-                                <td>{turnover:.0f}{turnover_mark}</td>
+                                <td>{turnover_rate:.2f}{turnover_mark}</td>
                             </tr>
                     """
 
@@ -495,7 +496,7 @@ class EmailSender:
                     <h3>📊 筛选标准</h3>
                     <ul>
                         <li><strong>PE筛选:</strong> PE &gt; 0 且 PE ≤ {selection_criteria.get('max_pe_ratio', 30)}</li>
-                        <li><strong>成交额筛选:</strong> 成交额 ≥ {selection_criteria.get('min_turnover', 5000)}万元</li>
+                        <li><strong>换手率筛选:</strong> 换手率 ≥ {selection_criteria.get('min_turnover_rate', 1)}%</li>
                         <li><strong>强势评分:</strong> 综合涨跌幅、动量、流动性等多维指标</li>
                         <li><strong>数量限制:</strong> 最多推荐{selection_criteria.get('max_stocks', 5)}只股票</li>
                     </ul>

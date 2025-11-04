@@ -336,12 +336,12 @@ class MarketAnalyzer:
             if selected_stocks:
                 md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
 
-| 排名 | 股票名称 | 代码 | PE | ROE | 涨跌幅 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 | 成交额(万) |
+| 排名 | 股票名称 | 代码 | PE | ROE | 涨跌幅 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 | 换手率(%) |
 |------|----------|------|----|----- |---------|------|------|--------|------|------|------|------|-----------|
 """
 
                 for stock in selected_stocks:
-                    turnover_display = f"{stock.get('turnover', 0):.0f}" if stock.get('turnover') else "-"
+                    turnover_rate_display = f"{stock.get('turnover_rate', 0):.2f}" if stock.get('turnover_rate') else "-"
                     roe_display = f"{stock.get('roe', 0):.1f}%" if stock.get('roe') else "-"
                     grade = stock.get('strength_grade', '-')
                     

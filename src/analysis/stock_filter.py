@@ -45,15 +45,20 @@ class StockFilter:
             elif momentum > 0:
                 score_breakdown['technical'] += 4
 
-            # 1.3 流动性 (5分)
-            turnover = stock_data.get('turnover', 0)
-            min_turnover = self.config.get('min_turnover', 10000)
-            if turnover > min_turnover * 3:
+            # 1.3 流动性 (5分) - 基于换手率
+            # 使用换手率而非成交额，更公平地评估流动性（消除市值影响）
+            turnover_rate = stock_data.get('turnover_rate', 0)
+            if turnover_rate and 1 <= turnover_rate < 3:  # 最佳流动性：适中活跃
                 score_breakdown['technical'] += 5
-            elif turnover > min_turnover * 2:
+            elif turnover_rate and 3 <= turnover_rate < 5:  # 良好流动性
+                score_breakdown['technical'] += 4
+            elif turnover_rate and 5 <= turnover_rate < 8:  # 流动性充足但略偏高
                 score_breakdown['technical'] += 3
-            elif turnover > min_turnover:
+            elif turnover_rate and 0.5 <= turnover_rate < 1:  # 流动性偏低但可接受
+                score_breakdown['technical'] += 2
+            elif turnover_rate and turnover_rate >= 8:  # 换手过高，投机性强
                 score_breakdown['technical'] += 1
+            # 换手率 < 0.5% 流动性不足，不得分
 
             # ===== 2. 估值得分 (25分) =====
             # 2.1 PE估值 (10分) - 按10,20,30区分
@@ -238,20 +243,20 @@ class StockFilter:
             try:
                 # 过滤条件
                 price = stock.get('price', 0)
-                turnover = stock.get('turnover', 0)
+                turnover_rate = stock.get('turnover_rate', 0)
                 change_pct = stock.get('change_pct', 0)
 
-                # 排除停牌股票（涨跌幅为0且成交额很小）
-                if change_pct == 0 and turnover < 100:  # 100万元（API返回单位为万元）
+                # 排除停牌股票（涨跌幅为0且换手率很小）
+                if change_pct == 0 and (turnover_rate is None or turnover_rate < 0.1):  # 0.1%换手率
                     continue
 
                 # 排除价格过低的股票
                 if price < self.config['min_price']:
                     continue
 
-                # 排除成交额过小的股票（优先使用成交额）
-                min_turnover = self.config.get('min_turnover', self.config.get('min_volume', 0) * 10)
-                if turnover < min_turnover:
+                # 排除换手率过小的股票
+                min_turnover_rate = self.config.get('min_turnover_rate', 0.5)  # 默认0.5%
+                if turnover_rate is None or turnover_rate < min_turnover_rate:
                     continue
 
                 # 排除跌停股票

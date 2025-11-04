@@ -15,7 +15,7 @@ EMAIL_CONFIG = {
 # 股票筛选参数
 STOCK_FILTER_CONFIG = {
     'max_pe_ratio': 30,
-    'min_turnover': 5000,  # 最小成交额：5000万元（API返回单位为万元）
+    'min_turnover_rate': 1.0,  # 最小换手率：1.0%
     'momentum_days': 20,
     'min_price': 1.0,
     'max_stocks': 5,  # 从3只增加到5只
