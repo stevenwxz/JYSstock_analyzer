@@ -360,7 +360,7 @@ class MarketAnalyzer:
                         safe_score = breakdown.get('safety', 0)
                         div_score = breakdown.get('dividend', 0)
                     
-                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} | {turnover_display} |\n"
+                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} | {turnover_rate_display} |\n"
             
             # 添加筛选统计
             md_content += f"""

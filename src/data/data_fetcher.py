@@ -214,20 +214,56 @@ class StockDataFetcher:
                             except (ValueError, IndexError):
                                 pass
 
-                        # 解析股息率 - 优先使用手动配置
-                        dividend_yield = None
-                        # 首先检查是否有手动配置的股息率
-                        manual_dividend = get_manual_dividend_yield(stock_code)
-                        if manual_dividend is not None:
-                            dividend_yield = manual_dividend
-                            logger.debug(f"{stock_code} 使用手动配置的股息率: {dividend_yield}%")
-                        elif data_parts[52]:
-                            try:
-                                dividend_yield = float(data_parts[52])
-                                if dividend_yield < 0:
-                                    dividend_yield = None
-                            except (ValueError, IndexError):
-                                pass
+                        # 解析股息率 - 改进算法：优先使用手动配置，然后根据每股股息和股价计算，最后使用API股息率（带验证）
+                        dividend_yield = None
+                        
+                        # 1. 首先检查是否有手动配置的股息率
+                        manual_dividend = get_manual_dividend_yield(stock_code)
+                        if manual_dividend is not None:
+                            dividend_yield = manual_dividend
+                            logger.debug(f"{stock_code} 使用手动配置的股息率: {dividend_yield}%")
+                        else:
+                            # 2. 获取当前股价和每股股息数据
+                            current_price = float(data_parts[3]) if data_parts[3] else None
+                            dividend_per_share = None
+                            
+                            # 尝试从API获取每股股息（字段[53]）
+                            if len(data_parts) > 53 and data_parts[53]:
+                                try:
+                                    dividend_per_share = float(data_parts[53])
+                                    if dividend_per_share < 0:
+                                        dividend_per_share = None
+                                except (ValueError, IndexError):
+                                    pass
+                            
+                            # 3. 如果有股价和每股股息数据，计算股息率
+                            if current_price and current_price > 0 and dividend_per_share and dividend_per_share > 0:
+                                calculated_yield = (dividend_per_share / current_price) * 100
+                                # 验证计算结果是否合理（不超过20%）
+                                if calculated_yield <= 20:
+                                    dividend_yield = calculated_yield
+                                    logger.debug(f"{stock_code} 基于每股股息({dividend_per_share}元)和股价({current_price}元)计算股息率: {dividend_yield:.2f}%")
+                                else:
+                                    # 尝试调整单位（可能是以分为单位）
+                                    adjusted_dividend = dividend_per_share / 100  # 转换为元
+                                    adjusted_yield = (adjusted_dividend / current_price) * 100
+                                    if adjusted_yield <= 20 and adjusted_yield > 0:
+                                        dividend_yield = adjusted_yield
+                                        logger.debug(f"{stock_code} 基于调整后的每股股息({adjusted_dividend:.4f}元)和股价({current_price}元)计算股息率: {dividend_yield:.2f}%")
+                                    else:
+                                        logger.warning(f"{stock_code} 计算的股息率{calculated_yield:.2f}%过高，可能不准确")
+                            
+                            # 4. 如果无法计算，使用API提供的股息率（但进行合理性检查）
+                            if dividend_yield is None and len(data_parts) > 52 and data_parts[52]:
+                                try:
+                                    api_yield = float(data_parts[52])
+                                    if 0 <= api_yield <= 20:  # 合理范围：0-20%
+                                        dividend_yield = api_yield
+                                        logger.debug(f"{stock_code} 使用API提供的股息率: {dividend_yield}%")
+                                    else:
+                                        logger.warning(f"{stock_code} API提供的股息率{api_yield}%超出合理范围(0-20%)，将忽略此值")
+                                except (ValueError, IndexError):
+                                    pass
 
                         # 解析换手率
                         turnover_rate = None
