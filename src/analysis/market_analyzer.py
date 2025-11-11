@@ -305,43 +305,42 @@ class MarketAnalyzer:
 
 """
             
-            # 添加每只股票的详细信息
-            for stock in selected_stocks:
-                trend = "↗" if stock.get('change_pct', 0) > 0 else "↘" if stock.get('change_pct', 0) < 0 else "→"
-                md_content += f"""### #{stock.get('rank', 0)} {stock['name']} ({stock['code']}) [{trend}]
-- **价格**: ¥{stock.get('price', 0):.2f}
-- **涨跌幅**: {stock.get('change_pct', 0):+.2f}%
-- **PE**: {stock.get('pe_ratio', 0):.2f}倍
-- **强势分数**: {stock.get('strength_score', 0):.0f}分
-"""
-                
-                # 添加分项得分
-                score_detail = stock.get('strength_score_detail', {})
-                if score_detail:
-                    breakdown = score_detail.get('breakdown', {})
-                    md_content += f"""- **分项得分**:
-  - 技术面: {breakdown.get('technical', 0)}分
-  - 估值: {breakdown.get('valuation', 0)}分
-  - 盈利能力: {breakdown.get('profitability', 0)}分
-  - 安全性: {breakdown.get('safety', 0)}分
-  - 股息: {breakdown.get('dividend', 0)}分
-- **评级**: {score_detail.get('grade', '')}
-"""
-                
-                md_content += f"""- **选择理由**: {stock.get('selection_reason', '符合筛选条件')}
-
+            # 添加每只股票的详细信息
+            for stock in selected_stocks:
+                trend = "↗" if stock.get('change_pct', 0) > 0 else "↘" if stock.get('change_pct', 0) < 0 else "→"
+                md_content += f"""### #{stock.get('rank', 0)} {stock['name']} ({stock['code']}) [{trend}]
+- **价格**: ¥{stock.get('price', 0):.2f}
+- **涨跌幅**: {stock.get('change_pct', 0):+.2f}%
+- **PE**: {stock.get('pe_ratio', 0):.2f}倍
+- **强势分数**: {stock.get('strength_score', 0):.0f}分
+"""
+                
+                # 添加分项得分
+                score_detail = stock.get('strength_score_detail', {})
+                if score_detail:
+                    breakdown = score_detail.get('breakdown', {})
+                    md_content += f"""- **分项得分**:
+  - 技术面: {breakdown.get('technical', 0)}分
+  - 估值: {breakdown.get('valuation', 0)}分
+  - 盈利能力: {breakdown.get('profitability', 0)}分
+  - 安全性: {breakdown.get('safety', 0)}分
+  - 股息: {breakdown.get('dividend', 0)}分
+- **评级**: {score_detail.get('grade', '')}
+"""
+                
+                md_content += f"""- **选择理由**: {stock.get('selection_reason', '符合筛选条件')}
+
 """
             
             # 添加候选股票表格
             if selected_stocks:
                 md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
 
-| 排名 | 股票名称 | 代码 | PE | ROE | 涨跌幅 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 | 换手率(%) |
-|------|----------|------|----|----- |---------|------|------|--------|------|------|------|------|-----------|
+| 排名 | 股票名称 | 代码 | 股价 | PB | PE | ROE | 涨跌幅 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 |
+|------|----------|------|------|----|----|----- |---------|-----|-----|--------|------|------|------|------|
 """
 
                 for stock in selected_stocks:
-                    turnover_rate_display = f"{stock.get('turnover_rate', 0):.2f}" if stock.get('turnover_rate') else "-"
                     roe_display = f"{stock.get('roe', 0):.1f}%" if stock.get('roe') else "-"
                     grade = stock.get('strength_grade', '-')
                     
@@ -360,7 +359,22 @@ class MarketAnalyzer:
                         safe_score = breakdown.get('safety', 0)
                         div_score = breakdown.get('dividend', 0)
                     
-                    md_content += f"|  {stock.get('rank', 0)} | {stock['name']} | {stock['code']} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} | {turnover_rate_display} |\n"
+                                        # 获取股价和计算总市值（如果可能获取总股本数据）
+                    price = stock.get('price', 0)
+                    # 尝试从股票数据中获取总市值信息，如果不存在则尝试计算
+                    market_cap = stock.get('market_cap', None)  # 单位是万元
+                    if market_cap:
+                        market_cap_display = f"{market_cap/10000:.2f}"  # 转换为亿元并格式化
+                    else:
+                        # 尝试使用总股本计算总市值
+                        total_shares = stock.get('total_shares', None)  # 单位是万股
+                        if total_shares and price > 0:
+                            market_cap = price * total_shares * 10000  # 总市值 = 股价 * 总股本
+                            market_cap_display = f"{market_cap/100000000:.2f}"  # 转换为亿元并格式化
+                        else:
+                            market_cap_display = "-"  # 无法获取总市值，显示为"-"
+                    
+                    md_content += f"|  {stock.get('rank', 0)} | {stock.get('name', '-')} | {stock.get('code', '-')} | {price:.2f} | {stock.get('pb_ratio', 0):.2f} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} |\n"
             
             # 添加筛选统计
             md_content += f"""
