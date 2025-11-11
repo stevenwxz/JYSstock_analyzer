@@ -283,11 +283,11 @@ class EmailSender:
                 for stock in selected_stocks:
                     rank = stock.get('rank', 0)
                     change_pct = stock.get('change_pct', 0)
-                    change_class = "positive" if change_pct > 0 else "negative"
-                    trend_icon = "↗" if change_pct > 0 else "↘" if change_pct < 0 else "→"
-                    turnover = stock.get('turnover', 0)
-                    turnover_rate = stock.get('turnover_rate', 0)
-
+                    change_class = "positive" if change_pct > 0 else "negative"
+                    trend_icon = "↗" if change_pct > 0 else "↘" if change_pct < 0 else "→"
+                    turnover = stock.get('turnover', 0)
+                    turnover_rate = stock.get('turnover_rate', 0)
+
                     html += f"""
                         <div class="stock-card">
                             <h3>#{rank} {stock.get('name', '')} ({stock.get('code', '')}) {trend_icon}</h3>
@@ -328,6 +328,8 @@ class EmailSender:
                                 <th>排名</th>
                                 <th>股票名称</th>
                                 <th>代码</th>
+                                <th>股价</th>
+                                <th>PB</th>
                                 <th>PE</th>
                                 <th>ROE</th>
                                 <th>涨跌幅</th>
@@ -338,7 +340,6 @@ class EmailSender:
                                 <th>盈利</th>
                                 <th>安全</th>
                                 <th>股息</th>
-                                <th>换手率(%)</th>
                             </tr>
                 """
 
@@ -351,7 +352,11 @@ class EmailSender:
                     roe_display = f"{roe:.1f}%" if roe else "-"
                     roe_class = "excellent" if roe and roe > 20 else "good" if roe and roe > 15 else ""
                     grade = stock.get('strength_grade', '-')
-                    
+                    price = stock.get('price', 0)
+                    pb = stock.get('pb_ratio', 0)
+                    pe_ratio = stock.get('pe_ratio', 0)
+                    strength_score = stock.get('strength_score', 0)
+
                     # 获取分项得分
                     score_detail = stock.get('strength_score_detail', {})
                     tech_score = 0
@@ -369,20 +374,21 @@ class EmailSender:
 
                     html += f"""
                             <tr>
-                                <td>{stock.get('rank', 0)}</td>
-                                <td>{stock.get('name', '')}</td>
-                                <td>{stock.get('code', '')}</td>
-                                <td>{stock.get('pe_ratio', 0):.2f}</td>
+                                <td>{stock.get('rank', '-')}</td>
+                                <td>{stock.get('name', '-')}</td>
+                                <td>{stock.get('code', '-')}</td>
+                                <td>{price:.2f}</td>
+                                <td>{pb:.2f}</td>
+                                <td>{pe_ratio:.2f}</td>
                                 <td class="{roe_class}">{roe_display}</td>
                                 <td class="{change_class}">{change_pct:+.2f}%</td>
-                                <td>{stock.get('strength_score', 0):.0f}</td>
+                                <td>{strength_score:.0f}</td>
                                 <td><strong>{grade}</strong></td>
                                 <td>{tech_score}</td>
                                 <td>{val_score}</td>
                                 <td>{prof_score}</td>
                                 <td>{safe_score}</td>
                                 <td>{div_score}</td>
-                                <td>{turnover_rate:.2f}{turnover_mark}</td>
                             </tr>
                     """
 

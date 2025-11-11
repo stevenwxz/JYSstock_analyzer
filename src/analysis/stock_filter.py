@@ -156,9 +156,12 @@ class StockFilter:
             elif dividend_yield and dividend_yield > 3:
                 score_breakdown['dividend'] += 4
             elif dividend_yield and dividend_yield > 2:
+                score_breakdown['dividend'] += 3
+            elif dividend_yield and dividend_yield > 1:
                 score_breakdown['dividend'] += 2
-            elif dividend_yield and dividend_yield > 0:
+            elif dividend_yield and dividend_yield > 0.5:
                 score_breakdown['dividend'] += 1
+            # 股息率 <= 0.5% 不得分
 
         except Exception as e:
             logger.error(f"计算强势分数失败: {e}")
@@ -273,7 +276,7 @@ class StockFilter:
         return filtered_stocks
 
     def select_top_stocks(self, stocks_data: List[Dict]) -> List[Dict]:
-        """选择最终的推荐股票"""
+        """选择最终的推荐股票 - 直接按分数排序选择，不限制行业"""
         try:
             # 0. 去重（防止输入数据中有重复）
             unique_stocks = {}
@@ -294,15 +297,18 @@ class StockFilter:
             # 3. 按强势筛选并排序
             strength_filtered = self.filter_by_strength(additional_filtered)
 
-            # 4. 选择前N只股票
+            # 4. 直接按分数排序，不限制行业
+            strength_filtered.sort(key=lambda x: x['strength_score'], reverse=True)
+
+            # 5. 选择前N只股票
             final_selection = strength_filtered[:self.config['max_stocks']]
 
-            # 5. 添加选择理由
+            # 6. 添加选择理由和排名
             for i, stock in enumerate(final_selection):
                 stock['rank'] = i + 1
                 stock['selection_reason'] = self._generate_selection_reason(stock)
 
-            logger.info(f"最终选择 {len(final_selection)} 只股票")
+            logger.info(f"最终选择 {len(final_selection)} 只股票 (不限制行业)")
             return final_selection
 
         except Exception as e:
