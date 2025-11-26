@@ -7,16 +7,24 @@ import json
 import os
 
 from src.data.data_fetcher import StockDataFetcher
+from src.data.async_data_fetcher import batch_get_stock_data_sync, get_market_overview_sync
 from src.analysis.stock_filter import StockFilter
 from config.config import STOCK_FILTER_CONFIG, DATA_CONFIG
 
 logger = logging.getLogger(__name__)
 
 class MarketAnalyzer:
-    def __init__(self):
+    def __init__(self, use_async: bool = True):
+        """
+        初始化市场分析器
+
+        Args:
+            use_async: 是否使用异步数据获取器 (默认True,大幅提升性能)
+        """
         self.data_fetcher = StockDataFetcher()
         self.stock_filter = StockFilter()
         self.analysis_results = {}
+        self.use_async = use_async
 
     def _load_csi300_stocks(self) -> pd.DataFrame:
         """加载沪深300成分股列表 - 优先使用本地缓存"""
@@ -74,16 +82,30 @@ class MarketAnalyzer:
 
             logger.info(f"开始分析沪深300成分股，共 {len(a_share_list)} 只")
 
-            # 3. 批量获取股票数据（分批处理以避免请求过多）
-            batch_size = 100
-            all_stock_data = []
+            # 3. 批量获取股票数据
+            stock_codes = a_share_list['code'].tolist()
 
-            for i in range(0, len(a_share_list), batch_size):
-                batch = a_share_list.iloc[i:i+batch_size]['code'].tolist()
-                logger.info(f"处理第 {i//batch_size + 1} 批股票，共 {len(batch)} 只")
+            if self.use_async:
+                # 使用异步获取器 - 大幅提升性能
+                logger.info("使用异步批量获取模式 (性能优化)")
+                all_stock_data = batch_get_stock_data_sync(
+                    stock_codes,
+                    calculate_momentum=True,
+                    include_fundamental=True,
+                    max_concurrent=20  # 可以调整并发数
+                )
+            else:
+                # 使用原有的同步方式 - 兼容模式
+                logger.info("使用同步批量获取模式 (兼容模式)")
+                batch_size = 100
+                all_stock_data = []
 
-                batch_data = self.data_fetcher.batch_get_stock_data(batch)
-                all_stock_data.extend(batch_data)
+                for i in range(0, len(stock_codes), batch_size):
+                    batch = stock_codes[i:i+batch_size]
+                    logger.info(f"处理第 {i//batch_size + 1} 批股票，共 {len(batch)} 只")
+
+                    batch_data = self.data_fetcher.batch_get_stock_data(batch)
+                    all_stock_data.extend(batch_data)
 
             logger.info(f"成功获取 {len(all_stock_data)} 只股票的数据")
 
@@ -91,7 +113,10 @@ class MarketAnalyzer:
             selected_stocks = self.stock_filter.select_top_stocks(all_stock_data)
 
             # 5. 获取市场概况
-            market_overview = self.data_fetcher.get_market_overview()
+            if self.use_async:
+                market_overview = get_market_overview_sync()
+            else:
+                market_overview = self.data_fetcher.get_market_overview()
 
             # 6. 生成分析结果
             analysis_result = {
