@@ -362,7 +362,7 @@ class MarketAnalyzer:
                 md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
 
 | 排名 | 股票名称 | 代码 | 股价 | PB | PE | ROE | 涨跌幅 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 |
-|------|----------|------|------|----|----|----- |---------|-----|-----|--------|------|------|------|------|
+|------|----------|------|------|------|------|-------|---------|------|------|--------|------|------|------|------|
 """
 
                 for stock in selected_stocks:
@@ -384,7 +384,7 @@ class MarketAnalyzer:
                         safe_score = breakdown.get('safety', 0)
                         div_score = breakdown.get('dividend', 0)
                     
-                                        # 获取股价和计算总市值（如果可能获取总股本数据）
+                                    # 获取股价和计算总市值（如果可能获取总股本数据）
                     price = stock.get('price', 0)
                     # 尝试从股票数据中获取总市值信息，如果不存在则尝试计算
                     market_cap = stock.get('market_cap', None)  # 单位是万元
@@ -427,33 +427,6 @@ class MarketAnalyzer:
 
 ## 🎯 **投资分析**
 
-### ✅ **精选股票亮点**
-"""
-            
-            for i, stock in enumerate(selected_stocks, 1):
-                # 获取分项得分中的最高分
-                score_detail = stock.get('strength_score_detail', {})
-                max_score_name = ""
-                max_score_value = 0
-                if score_detail:
-                    breakdown = score_detail.get('breakdown', {})
-                    score_items = [
-                        ("技术面", breakdown.get('technical', 0)),
-                        ("估值", breakdown.get('valuation', 0)),
-                        ("盈利能力", breakdown.get('profitability', 0)),
-                        ("安全性", breakdown.get('safety', 0)),
-                        ("股息", breakdown.get('dividend', 0))
-                    ]
-                    max_score_name, max_score_value = max(score_items, key=lambda x: x[1])
-                
-                md_content += f"""
-{i}. **{stock['name']} ({stock['code']})**
-   - **估值水平**: PE {stock.get('pe_ratio', 0):.2f}倍
-   - **强势评分**: {stock.get('strength_score', 0):.0f}分
-   - **优势维度**: {max_score_name} ({max_score_value}分)
-"""
-            
-            md_content += f"""
 ### 📈 **投资价值**
 - **市场代表性**: 基于沪深300成分股,代表A股核心优质资产
 - **估值安全**: 严格PE筛选避免高风险标的  

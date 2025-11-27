@@ -64,6 +64,25 @@ class StockDataFetcher:
         delay = random.uniform(min_delay, max_delay)
         time.sleep(delay)
 
+    def get_stock_industry_info(self, stock_code: str) -> str:
+        """获取股票行业信息 - 使用akshare获取行业分类"""
+        try:
+            import akshare as ak
+            
+            # 获取股票所属行业
+            stock_info = ak.stock_individual_info_em(symbol=stock_code)
+            if not stock_info.empty:
+                # 查找行业字段
+                industry_row = stock_info[stock_info['item'] == '行业']
+                if not industry_row.empty:
+                    industry = industry_row['value'].iloc[0]
+                    return industry if industry else "未知行业"
+            
+            return "未知行业"
+        except Exception as e:
+            logger.debug(f"获取股票 {stock_code} 行业信息失败: {e}")
+            return "未知行业"
+
     def get_stock_realtime_data(self, stock_code: str, retry_count: int = 0) -> Dict:
         """获取股票实时数据 - 使用腾讯财经API，带重试机制"""
         import requests
@@ -105,28 +124,80 @@ class StockDataFetcher:
                         data_str = content.split('"')[1]
                         data_parts = data_str.split('~')
 
-                        if len(data_parts) > 56:
+                        # 腾讯API返回数据结构：
+                        # [0]市场标志 [1]名称 [2]代码 [3]当前价 [4]昨收 [5]今开 [6]成交量 [7]成交额 [8]最高 [9]最低
+                        # [10]竞买价 [11]竞卖价 [12]委比 [13]振幅 [14]市盈率(动) [15]市盈率(静) [16]市净率 [17]涨停价 [18]跌停价 [19]量比
+                        # [20]均价 [21]溢价 [22]市盈率(TTM) [23]总市值（万元）[24]流通市值 [25]总股本（万股）[26]流通股 [27]换手率 [28]资产净值 [29]市现率 [30]市销率 [31]股息率 [32]涨跌幅 [33]涨跌额
+                        # [34]买入价 [35]卖出价 ... (更多字段)
+                        if len(data_parts) > 35:
                             name = data_parts[1]
-                            price = float(data_parts[3]) if data_parts[3] else 0
-                            change_pct = float(data_parts[32]) if data_parts[32] else 0
-                            pe_str = data_parts[39] if len(data_parts) > 39 else None
-                            volume = int(float(data_parts[6])) if data_parts[6] else 0
-                            turnover = int(float(data_parts[37])) if len(data_parts) > 37 and data_parts[37] else 0
+                            price = float(data_parts[3]) if data_parts[3] and data_parts[3] != '' else 0
+                            prev_close = float(data_parts[4]) if data_parts[4] and data_parts[4] != '' else 0
+                            change_pct = float(data_parts[32]) if data_parts[32] and data_parts[32] != '' else 0
+                            pe_dynamic = data_parts[14] if len(data_parts) > 14 and data_parts[14] != '' and data_parts[14] != '0' else None  # 动态PE
+                            pe_static = data_parts[15] if len(data_parts) > 15 and data_parts[15] != '' and data_parts[15] != '0' else None  # 静态PE
+                            pe_ttm = data_parts[22] if len(data_parts) > 22 and data_parts[22] != '' and data_parts[22] != '0' else None  # TTM PE
+                            pb = data_parts[16] if len(data_parts) > 16 and data_parts[16] != '' and data_parts[16] != '0' else None  # 市净率
+                            volume = int(float(data_parts[6])) if data_parts[6] and data_parts[6] != '' else 0
+                            turnover = int(float(data_parts[7])) if data_parts[7] and data_parts[7] != '' else 0  # 成交额
+                            
+                            # 获取总市值和总股本信息（如果存在）
+                            market_cap_str = data_parts[23] if len(data_parts) > 23 and data_parts[23] != '' else None  # 总市值（万元）
+                            total_shares_str = data_parts[25] if len(data_parts) > 25 and data_parts[25] != '' else None  # 总股本（万股）
+                            
+                            market_cap = None
+                            total_shares = None
+                            
+                            if market_cap_str:
+                                try:
+                                    market_cap = float(market_cap_str)  # 单位是万元
+                                except ValueError:
+                                    pass
+                            
+                            if total_shares_str:
+                                try:
+                                    total_shares = float(total_shares_str)  # 单位是万股
+                                except ValueError:
+                                    pass
                             
                             # 获取换手率数据
                             turnover_rate = None
-                            if data_parts[56]:
+                            if len(data_parts) > 27 and data_parts[27] and data_parts[27] != '':
                                 try:
-                                    turnover_rate = float(data_parts[56])
+                                    turnover_rate = float(data_parts[27])
                                 except (ValueError, IndexError):
                                     pass
 
-                            pe_ratio = None
-                            if pe_str and pe_str != '':
+                            # 获取PE值 - 调整优先级：优先使用基本面PE，然后是TTM PE，静态PE，最后动态PE
+                            pe_ratio = None
+                            
+                            # 按优先级顺序尝试不同的PE值
+                            pe_fields = [
+                                ('基本面PE', data_parts[39] if len(data_parts) > 39 else None),  # 字段39 - 基本面PE
+                                ('TTM PE', data_parts[22] if len(data_parts) > 22 else None),     # 字段22 - TTM PE
+                                ('静态PE', data_parts[15] if len(data_parts) > 15 else None),     # 字段15 - 静态PE
+                                ('动态PE', data_parts[14] if len(data_parts) > 14 else None)      # 字段14 - 动态PE
+                            ]
+                            
+                            for pe_name, pe_str in pe_fields:
+                                if pe_str and pe_str != '':
+                                    try:
+                                        pe_value = float(pe_str)
+                                        # 过滤异常PE值（大于1000或小于0的值）
+                                        if pe_value > 0 and pe_value < 1000:
+                                            pe_ratio = pe_value
+                                            logger.debug(f"{stock_code} 使用{pe_name}: {pe_value:.2f}")
+                                            break  # 找到合适的PE值就停止
+                                    except ValueError:
+                                        continue
+
+                            # 获取PB值
+                            pb_ratio = None
+                            if pb:
                                 try:
-                                    pe_ratio = float(pe_str)
-                                    if pe_ratio <= 0:
-                                        pe_ratio = None  # 亏损股
+                                    pb_value = float(pb)
+                                    if pb_value > 0 and pb_value < 100:  # 过滤异常值
+                                        pb_ratio = pb_value
                                 except ValueError:
                                     pass
 
@@ -134,10 +205,14 @@ class StockDataFetcher:
                                 'code': stock_code,
                                 'name': name,
                                 'price': price,
+                                'prev_close': prev_close,
                                 'change_pct': change_pct,
                                 'pe_ratio': pe_ratio,
+                                'pb_ratio': pb_ratio,  # 添加PB比率
+                                'market_cap': market_cap,  # 总市值（万元单位）
+                                'total_shares': total_shares,  # 总股本（万股单位）
                                 'volume': volume,
-                                'turnover': turnover,
+                                'turnover': turnover,  # 成交额
                                 'turnover_rate': turnover_rate
                             }
 
@@ -214,56 +289,41 @@ class StockDataFetcher:
                             except (ValueError, IndexError):
                                 pass
 
-                        # 解析股息率 - 改进算法：优先使用手动配置，然后根据每股股息和股价计算，最后使用API股息率（带验证）
-                        dividend_yield = None
-                        
-                        # 1. 首先检查是否有手动配置的股息率
-                        manual_dividend = get_manual_dividend_yield(stock_code)
-                        if manual_dividend is not None:
-                            dividend_yield = manual_dividend
-                            logger.debug(f"{stock_code} 使用手动配置的股息率: {dividend_yield}%")
-                        else:
-                            # 2. 获取当前股价和每股股息数据
-                            current_price = float(data_parts[3]) if data_parts[3] else None
-                            dividend_per_share = None
-                            
-                            # 尝试从API获取每股股息（字段[53]）
-                            if len(data_parts) > 53 and data_parts[53]:
-                                try:
-                                    dividend_per_share = float(data_parts[53])
-                                    if dividend_per_share < 0:
-                                        dividend_per_share = None
-                                except (ValueError, IndexError):
-                                    pass
-                            
-                            # 3. 如果有股价和每股股息数据，计算股息率
-                            if current_price and current_price > 0 and dividend_per_share and dividend_per_share > 0:
-                                calculated_yield = (dividend_per_share / current_price) * 100
-                                # 验证计算结果是否合理（不超过20%）
-                                if calculated_yield <= 20:
-                                    dividend_yield = calculated_yield
-                                    logger.debug(f"{stock_code} 基于每股股息({dividend_per_share}元)和股价({current_price}元)计算股息率: {dividend_yield:.2f}%")
-                                else:
-                                    # 尝试调整单位（可能是以分为单位）
-                                    adjusted_dividend = dividend_per_share / 100  # 转换为元
-                                    adjusted_yield = (adjusted_dividend / current_price) * 100
-                                    if adjusted_yield <= 20 and adjusted_yield > 0:
-                                        dividend_yield = adjusted_yield
-                                        logger.debug(f"{stock_code} 基于调整后的每股股息({adjusted_dividend:.4f}元)和股价({current_price}元)计算股息率: {dividend_yield:.2f}%")
-                                    else:
-                                        logger.warning(f"{stock_code} 计算的股息率{calculated_yield:.2f}%过高，可能不准确")
-                            
-                            # 4. 如果无法计算，使用API提供的股息率（但进行合理性检查）
-                            if dividend_yield is None and len(data_parts) > 52 and data_parts[52]:
-                                try:
-                                    api_yield = float(data_parts[52])
-                                    if 0 <= api_yield <= 20:  # 合理范围：0-20%
-                                        dividend_yield = api_yield
-                                        logger.debug(f"{stock_code} 使用API提供的股息率: {dividend_yield}%")
-                                    else:
-                                        logger.warning(f"{stock_code} API提供的股息率{api_yield}%超出合理范围(0-20%)，将忽略此值")
-                                except (ValueError, IndexError):
+                        # 解析股息率 - 采用统一的每10股转换算法
+                        dividend_yield = None
+
+                        # 1. 首先检查是否有手动配置的股息率
+                        manual_dividend = get_manual_dividend_yield(stock_code)
+                        if manual_dividend is not None:
+                            dividend_yield = manual_dividend
+                            logger.debug(f"{stock_code} 使用手动配置的股息率: {dividend_yield}%")
+                        else:
+                            # 2. 获取当前股价和股息数据
+                            current_price = float(data_parts[3]) if data_parts[3] else None
+                            dividend_data = None
+
+                            # 尝试从API获取股息数据（字段[53]）
+                            if len(data_parts) > 53 and data_parts[53]:
+                                try:
+                                    dividend_data = float(data_parts[53])
+                                    if dividend_data < 0:
+                                        dividend_data = None
+                                except (ValueError, IndexError):
                                     pass
+
+                            # 3. 如果有股价和股息数据，使用统一的每10股转换算法
+                            if current_price and current_price > 0 and dividend_data and dividend_data > 0:
+                                # 统一采用每10股股息转换算法
+                                # 根据测试，API返回的数据通常是每10股的股息，需要除以10得到每股股息
+                                per_share_dividend = dividend_data / 10
+                                dividend_yield = (per_share_dividend / current_price) * 100
+
+                                # 验证计算结果是否在合理范围内（0-20%）
+                                if 0 < dividend_yield <= 20:
+                                    logger.debug(f"{stock_code} 基于每10股股息转换的每股股息({per_share_dividend:.4f}元)和股价({current_price}元)计算股息率: {dividend_yield:.2f}%")
+                                else:
+                                    logger.warning(f"{stock_code} 计算的股息率{dividend_yield:.2f}%超出合理范围(0-20%)，使用默认值")
+                                    dividend_yield = None
 
                         # 解析换手率
                         turnover_rate = None
@@ -274,30 +334,31 @@ class StockDataFetcher:
                                 pass
 
                         # 获取PE用于估算PEG（简化版：使用行业平均增长率15%）
-                        pe_ratio = None
-                        peg = None
-                        if data_parts[39]:
-                            try:
-                                pe_ratio = float(data_parts[39])
-                                if pe_ratio > 0:
-                                    # 简化PEG计算：假设平均增长率15%
-                                    # 如果PB很低(<1),假设增长更高(20%)
-                                    # 如果PB很高(>5),假设增长较低(10%)
-                                    if pb_ratio:
-                                        if pb_ratio < 1:
-                                            assumed_growth = 20
-                                        elif pb_ratio > 5:
-                                            assumed_growth = 10
-                                        else:
-                                            assumed_growth = 15
-                                    else:
-                                        assumed_growth = 15
-
-                                    peg = pe_ratio / assumed_growth
-                            except (ValueError, IndexError):
+                        pe_ratio = None
+                        peg = None
+                        if data_parts[39]:
+                            try:
+                                pe_value = float(data_parts[39])
+                                # 过滤异常PE值（大于100或小于0的值），但仍允许相对较高的基本面PE值
+                                if pe_value > 0 and pe_value < 200:
+                                    pe_ratio = pe_value
+                                    # 简化PEG计算：假设平均增长率15%
+                                    # 如果PB很低(<1),假设增长更高(20%)
+                                    # 如果PB很高(>5),假设增长较低(10%)
+                                    if pb_ratio:
+                                        if pb_ratio < 1:
+                                            assumed_growth = 20
+                                        elif pb_ratio > 5:
+                                            assumed_growth = 10
+                                        else:
+                                            assumed_growth = 15
+                                    else:
+                                        assumed_growth = 15
+
+                                    peg = pe_ratio / assumed_growth
+                            except (ValueError, TypeError):
+                                # 如果解析失败，保持pe_ratio为None
                                 pass
-
-                        # 计算ROE = PB / PE (重要!)
                         roe = None
                         if pb_ratio and pe_ratio and pe_ratio > 0:
                             try:
@@ -321,23 +382,24 @@ class StockDataFetcher:
                             except:
                                 profit_growth = None
 
-                        # 基于现有数据推算财务健康度评分
-                        financial_health_score = self._calculate_financial_health(
-                            pb_ratio, dividend_yield, pe_ratio, turnover_rate
+                        # 基于现有数据推算财务健康度评分
+                        financial_health_score = self._calculate_financial_health(
+                            pb_ratio, dividend_yield, pe_ratio, turnover_rate
                         )
 
-                        fundamental_data = {
-                            'pb_ratio': pb_ratio,
-                            'dividend_yield': dividend_yield,
-                            'peg': peg,  # 简化版PEG
-                            'turnover_rate': turnover_rate,
-                            'financial_health_score': financial_health_score,
-                            'roe': roe,  # 通过PB/PE计算得出! ⭐
-                            'profit_growth': profit_growth,  # 通过ROE估算
-                            # 以下字段暂时无法获取
-                            'debt_ratio': None,  # 腾讯API不提供
-                            'current_ratio': None,
-                            'gross_margin': None,
+                        return {
+                            'pb_ratio': pb_ratio,
+                            'dividend_yield': dividend_yield,
+                            'peg': peg,  # 简化版PEG
+                            'turnover_rate': turnover_rate,
+                            'financial_health_score': financial_health_score,
+                            'roe': roe,  # 通过PB/PE计算得出! ⭐
+                            'profit_growth': profit_growth,  # 通过ROE估算
+                            # 以下字段暂时无法获取
+                            'debt_ratio': None,  # 腾讯API不提供
+                            'current_ratio': None,
+                            'gross_margin': None,
+                            # 不设置market_cap和total_shares为None，保留实时数据中的值
                         }
 
                         return fundamental_data
@@ -355,19 +417,19 @@ class StockDataFetcher:
                     time.sleep(backoff_time)
                     continue
 
-        # 返回空数据
-        return {
-            'pb_ratio': None,
-            'dividend_yield': None,
-            'peg': None,
-            'turnover_rate': None,
-            'financial_health_score': 0,
-            'roe': None,
-            'profit_growth': None,
-            'debt_ratio': None,
-            'current_ratio': None,
-            'gross_margin': None,
-        }
+        return {
+                'pb_ratio': None,
+                'dividend_yield': None,
+                'peg': None,
+                'turnover_rate': None,
+                'financial_health_score': 0,
+                'roe': None,
+                'profit_growth': None,
+                'debt_ratio': None,
+                'current_ratio': None,
+                'gross_margin': None,
+                # 不设置market_cap和total_shares为None，保留实时数据中的值
+            }
 
     def _calculate_financial_health(self, pb: Optional[float], div_yield: Optional[float],
                                     pe: Optional[float], turnover: Optional[float]) -> int:
@@ -771,6 +833,10 @@ class StockDataFetcher:
                 realtime_data = self.get_stock_realtime_data(code)
                 if not realtime_data:
                     continue
+
+                # 获取行业信息
+                industry = self.get_stock_industry_info(code)
+                realtime_data['industry'] = industry
 
                 # 计算20日动量
                 if calculate_momentum:

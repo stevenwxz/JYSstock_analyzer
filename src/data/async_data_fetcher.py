@@ -299,37 +299,35 @@ class AsyncStockDataFetcher:
                         pb_ratio, dividend_yield, pe_ratio, turnover_rate
                     )
 
-                    return {
-                        'pb_ratio': pb_ratio,
-                        'dividend_yield': dividend_yield,
-                        'peg': peg,
-                        'turnover_rate': turnover_rate,
-                        'financial_health_score': financial_health_score,
-                        'roe': roe,
-                        'profit_growth': profit_growth,
-                        'debt_ratio': None,
-                        'current_ratio': None,
-                        'gross_margin': None,
-                        'market_cap': None,
-                        'total_shares': None
+                    return {
+                        'pb_ratio': pb_ratio,
+                        'dividend_yield': dividend_yield,
+                        'peg': peg,
+                        'turnover_rate': turnover_rate,
+                        'financial_health_score': financial_health_score,
+                        'roe': roe,
+                        'profit_growth': profit_growth,
+                        'debt_ratio': None,
+                        'current_ratio': None,
+                        'gross_margin': None,
+                        # 不设置market_cap和total_shares为None，保留实时数据中的值
                     }
 
             except Exception as e:
                 logger.debug(f"获取股票 {stock_code} 基本面数据失败: {e}")
 
-            return {
-                'pb_ratio': None,
-                'dividend_yield': None,
-                'peg': None,
-                'turnover_rate': None,
-                'financial_health_score': 0,
-                'roe': None,
-                'profit_growth': None,
-                'debt_ratio': None,
-                'current_ratio': None,
-                'gross_margin': None,
-                'market_cap': None,
-                'total_shares': None
+            return {
+                'pb_ratio': None,
+                'dividend_yield': None,
+                'peg': None,
+                'turnover_rate': None,
+                'financial_health_score': 0,
+                'roe': None,
+                'profit_growth': None,
+                'debt_ratio': None,
+                'current_ratio': None,
+                'gross_margin': None,
+                # 不设置market_cap和total_shares为None，保留实时数据中的值
             }
 
     def _calculate_financial_health(self, pb: Optional[float], div_yield: Optional[float],
