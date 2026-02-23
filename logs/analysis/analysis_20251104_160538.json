@@ -1,0 +1,287 @@
+{
+  "analysis_date": "2025-11-04",
+  "analysis_time": "16:05:38",
+  "market_overview": {
+    "total_stocks": 5445,
+    "rising_stocks": 1596,
+    "falling_stocks": 3408,
+    "flat_stocks": 160,
+    "rising_ratio": 30.90627420604183,
+    "avg_change_pct": -1.36,
+    "update_time": "2025-11-04 16:05:38.065857",
+    "data_source": "腾讯财经实时数据",
+    "indices": [
+      {
+        "name": "上证指数",
+        "change_pct": -0.41,
+        "price": 3960.19
+      },
+      {
+        "name": "深证成指",
+        "change_pct": -1.71,
+        "price": 13175.22
+      },
+      {
+        "name": "创业板指",
+        "change_pct": -1.96,
+        "price": 3134.09
+      }
+    ],
+    "note": "真实统计5164只股票涨跌数据",
+    "success_count": 5164
+  },
+  "selected_stocks": [
+    {
+      "code": "601628",
+      "name": "中国人寿",
+      "price": 43.43,
+      "change_pct": 0.81,
+      "pe_ratio": 7.21,
+      "volume": 139163,
+      "turnover": 60388,
+      "turnover_rate": 1.38,
+      "momentum_20d": 10.222831328358971,
+      "pb_ratio": 1.98,
+      "dividend_yield": 1.49,
+      "peg": 0.4806666666666667,
+      "financial_health_score": 65,
+      "roe": 27.461858529819693,
+      "profit_growth": 25.97185852981969,
+      "debt_ratio": null,
+      "current_ratio": null,
+      "gross_margin": null,
+      "strength_score_detail": {
+        "total": 80,
+        "breakdown": {
+          "technical": 21,
+          "valuation": 25,
+          "profitability": 27,
+          "safety": 6,
+          "dividend": 1
+        },
+        "grade": "A"
+      },
+      "strength_score": 80,
+      "strength_grade": "A",
+      "rank": 1,
+      "selection_reason": "PE=7.21；PB=1.98；当日上涨；20日动量强劲；ROE优秀(27.5%)；高成长(26.0%)；安全性良好；综合A级(80.0分)"
+    },
+    {
+      "code": "601336",
+      "name": "新华保险",
+      "price": 66.75,
+      "change_pct": 0.3,
+      "pe_ratio": 5.42,
+      "volume": 168312,
+      "turnover": 113018,
+      "turnover_rate": 1.74,
+      "momentum_20d": 9.139960758665811,
+      "pb_ratio": 2.07,
+      "dividend_yield": 2.13,
+      "peg": 0.36133333333333334,
+      "financial_health_score": 60,
+      "roe": 38.191881918819185,
+      "profit_growth": 36.06188191881918,
+      "debt_ratio": null,
+      "current_ratio": null,
+      "gross_margin": null,
+      "strength_score_detail": {
+        "total": 78,
+        "breakdown": {
+          "technical": 17,
+          "valuation": 23,
+          "profitability": 30,
+          "safety": 6,
+          "dividend": 2
+        },
+        "grade": "A"
+      },
+      "strength_score": 78,
+      "strength_grade": "A",
+      "rank": 2,
+      "selection_reason": "PE=5.42；PB=2.07；当日上涨；20日动量向上；ROE优秀(38.2%)；高成长(36.1%)；安全性良好；综合A级(78.0分)"
+    },
+    {
+      "code": "601319",
+      "name": "中国人保",
+      "price": 8.47,
+      "change_pct": 0.0,
+      "pe_ratio": 7.02,
+      "volume": 563997,
+      "turnover": 48030,
+      "turnover_rate": 1.31,
+      "momentum_20d": 8.729139922978192,
+      "pb_ratio": 1.19,
+      "dividend_yield": 6.0,
+      "peg": 0.46799999999999997,
+      "financial_health_score": 80,
+      "roe": 16.951566951566953,
+      "profit_growth": 10.951566951566953,
+      "debt_ratio": null,
+      "current_ratio": null,
+      "gross_margin": null,
+      "strength_score_detail": {
+        "total": 74,
+        "breakdown": {
+          "technical": 15,
+          "valuation": 25,
+          "profitability": 20,
+          "safety": 9,
+          "dividend": 5
+        },
+        "grade": "B+"
+      },
+      "strength_score": 74,
+      "strength_grade": "B+",
+      "rank": 3,
+      "selection_reason": "PE=7.02；PB=1.19；20日动量向上；ROE优秀(17.0%)；成长性好(11.0%)；安全性高；综合B+级(74.0分)"
+    },
+    {
+      "code": "601601",
+      "name": "中国太保",
+      "price": 35.43,
+      "change_pct": 0.85,
+      "pe_ratio": 6.51,
+      "volume": 317982,
+      "turnover": 112373,
+      "turnover_rate": 1.48,
+      "momentum_20d": 0.882687927107062,
+      "pb_ratio": 1.2,
+      "dividend_yield": 5.59,
+      "peg": 0.434,
+      "financial_health_score": 80,
+      "roe": 18.433179723502306,
+      "profit_growth": 12.843179723502306,
+      "debt_ratio": null,
+      "current_ratio": null,
+      "gross_margin": null,
+      "strength_score_detail": {
+        "total": 72,
+        "breakdown": {
+          "technical": 13,
+          "valuation": 25,
+          "profitability": 20,
+          "safety": 9,
+          "dividend": 5
+        },
+        "grade": "B+"
+      },
+      "strength_score": 72,
+      "strength_grade": "B+",
+      "rank": 4,
+      "selection_reason": "PE=6.51；PB=1.20；当日上涨；20日动量向上；ROE优秀(18.4%)；成长性好(12.8%)；安全性高；综合B+级(72.0分)"
+    },
+    {
+      "code": "601600",
+      "name": "中国铝业",
+      "price": 9.85,
+      "change_pct": -3.15,
+      "pe_ratio": 11.85,
+      "volume": 3773356,
+      "turnover": 378422,
+      "turnover_rate": 1.22,
+      "momentum_20d": 21.35025255636318,
+      "pb_ratio": 2.3,
+      "dividend_yield": 11.66,
+      "peg": 0.7899999999999999,
+      "financial_health_score": 80,
+      "roe": 19.40928270042194,
+      "profit_growth": 7.74928270042194,
+      "debt_ratio": null,
+      "current_ratio": null,
+      "gross_margin": null,
+      "strength_score_detail": {
+        "total": 69,
+        "breakdown": {
+          "technical": 20,
+          "valuation": 20,
+          "profitability": 16,
+          "safety": 8,
+          "dividend": 5
+        },
+        "grade": "B+"
+      },
+      "strength_score": 69,
+      "strength_grade": "B+",
+      "rank": 5,
+      "selection_reason": "PE=11.85；PB=2.30；20日动量强劲；ROE优秀(19.4%)；安全性高；综合B+级(69.0分)"
+    }
+  ],
+  "total_analyzed": 287,
+  "selection_criteria": {
+    "max_pe_ratio": 30,
+    "min_turnover_rate": 1.0,
+    "momentum_days": 20,
+    "min_price": 1.0,
+    "max_stocks": 5,
+    "min_strength_score": 40
+  },
+  "summary": {
+    "market_sentiment": "偏弱调整",
+    "stock_recommendations": [
+      {
+        "rank": 1,
+        "code": "601628",
+        "name": "中国人寿",
+        "current_price": 43.43,
+        "change_pct": 0.81,
+        "pe_ratio": 7.21,
+        "momentum_20d": 10.222831328358971,
+        "strength_score": 80,
+        "reason": "PE=7.21；PB=1.98；当日上涨；20日动量强劲；ROE优秀(27.5%)；高成长(26.0%)；安全性良好；综合A级(80.0分)"
+      },
+      {
+        "rank": 2,
+        "code": "601336",
+        "name": "新华保险",
+        "current_price": 66.75,
+        "change_pct": 0.3,
+        "pe_ratio": 5.42,
+        "momentum_20d": 9.139960758665811,
+        "strength_score": 78,
+        "reason": "PE=5.42；PB=2.07；当日上涨；20日动量向上；ROE优秀(38.2%)；高成长(36.1%)；安全性良好；综合A级(78.0分)"
+      },
+      {
+        "rank": 3,
+        "code": "601319",
+        "name": "中国人保",
+        "current_price": 8.47,
+        "change_pct": 0.0,
+        "pe_ratio": 7.02,
+        "momentum_20d": 8.729139922978192,
+        "strength_score": 74,
+        "reason": "PE=7.02；PB=1.19；20日动量向上；ROE优秀(17.0%)；成长性好(11.0%)；安全性高；综合B+级(74.0分)"
+      },
+      {
+        "rank": 4,
+        "code": "601601",
+        "name": "中国太保",
+        "current_price": 35.43,
+        "change_pct": 0.85,
+        "pe_ratio": 6.51,
+        "momentum_20d": 0.882687927107062,
+        "strength_score": 72,
+        "reason": "PE=6.51；PB=1.20；当日上涨；20日动量向上；ROE优秀(18.4%)；成长性好(12.8%)；安全性高；综合B+级(72.0分)"
+      },
+      {
+        "rank": 5,
+        "code": "601600",
+        "name": "中国铝业",
+        "current_price": 9.85,
+        "change_pct": -3.15,
+        "pe_ratio": 11.85,
+        "momentum_20d": 21.35025255636318,
+        "strength_score": 69,
+        "reason": "PE=11.85；PB=2.30；20日动量强劲；ROE优秀(19.4%)；安全性高；综合B+级(69.0分)"
+      }
+    ],
+    "risk_warnings": [],
+    "key_metrics": {
+      "avg_price": 32.786,
+      "avg_pe_ratio": 7.601999999999999,
+      "avg_momentum": 10.064974498694642,
+      "price_range": "8.47 - 66.75",
+      "pe_range": "5.42 - 11.85"
+    }
+  }
+}

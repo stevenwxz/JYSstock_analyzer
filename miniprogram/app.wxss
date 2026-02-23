@@ -1,0 +1,92 @@
+/**app.wxss**/
+page {
+  background-color: #f5f5f5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+.container {
+  padding: 20rpx;
+}
+
+/* 通用卡片样式 */
+.card {
+  background-color: #ffffff;
+  border-radius: 16rpx;
+  padding: 30rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.05);
+}
+
+/* 涨跌幅颜色 */
+.price-up {
+  color: #ee4747;
+}
+
+.price-down {
+  color: #00b050;
+}
+
+.price-neutral {
+  color: #999999;
+}
+
+/* 评级颜色 */
+.grade-a-plus {
+  color: #ff4d4f;
+  font-weight: bold;
+}
+
+.grade-a {
+  color: #ff7a45;
+  font-weight: bold;
+}
+
+.grade-b {
+  color: #ffa940;
+}
+
+.grade-c {
+  color: #faad14;
+}
+
+/* 按钮样式 */
+.btn-primary {
+  background-color: #1aad19;
+  color: #ffffff;
+  border-radius: 8rpx;
+  padding: 20rpx;
+  text-align: center;
+  font-size: 32rpx;
+}
+
+.btn-secondary {
+  background-color: #f0f0f0;
+  color: #333333;
+  border-radius: 8rpx;
+  padding: 20rpx;
+  text-align: center;
+  font-size: 32rpx;
+}
+
+/* 加载提示 */
+.loading {
+  text-align: center;
+  padding: 60rpx;
+  color: #999999;
+}
+
+/* 空状态 */
+.empty {
+  text-align: center;
+  padding: 100rpx 0;
+  color: #999999;
+}
+
+.empty-icon {
+  font-size: 120rpx;
+  margin-bottom: 20rpx;
+}
+
+.empty-text {
+  font-size: 28rpx;
+}

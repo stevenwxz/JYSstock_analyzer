@@ -1,0 +1,137 @@
+<!--pages/index/index.wxml-->
+<view class="container">
+  <!-- 市场概览 -->
+  <view class="card market-overview" wx:if="{{marketSummary}}">
+    <view class="overview-title">市场概览</view>
+    <view class="overview-stats">
+      <view class="stat-item">
+        <view class="stat-value">{{marketSummary.totalStocks}}</view>
+        <view class="stat-label">总股票数</view>
+      </view>
+      <view class="stat-item">
+        <view class="stat-value price-up">{{marketSummary.risingStocks}}</view>
+        <view class="stat-label">上涨</view>
+      </view>
+      <view class="stat-item">
+        <view class="stat-value price-down">{{marketSummary.fallingStocks}}</view>
+        <view class="stat-label">下跌</view>
+      </view>
+      <view class="stat-item">
+        <view class="stat-value {{marketSummary.avgChangePct >= 0 ? 'price-up' : 'price-down'}}">
+          {{marketSummary.avgChangePct >= 0 ? '+' : ''}}{{marketSummary.avgChangePct}}%
+        </view>
+        <view class="stat-label">平均涨幅</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 推荐股票标题 -->
+  <view class="section-title">
+    <text class="title-text">📊 今日推荐 ({{stocks.length}}只)</text>
+    <text class="title-desc">基于量化策略筛选</text>
+  </view>
+
+  <!-- 股票列表 -->
+  <view class="stock-list">
+    <view
+      class="stock-item card"
+      wx:for="{{stocks}}"
+      wx:key="code"
+      bindtap="onStockTap"
+      data-code="{{item.code}}"
+    >
+      <!-- 排名标识 -->
+      <view class="rank-badge rank-{{item.rank}}">
+        <text>NO.{{item.rank}}</text>
+      </view>
+
+      <!-- 股票基本信息 -->
+      <view class="stock-header">
+        <view class="stock-name-section">
+          <text class="stock-name">{{item.name}}</text>
+          <text class="stock-code">{{item.code}}</text>
+        </view>
+        <view class="stock-price-section">
+          <text class="stock-price">¥{{item.price}}</text>
+          <text class="stock-change {{item.changePct >= 0 ? 'price-up' : 'price-down'}}">
+            {{item.changePct >= 0 ? '+' : ''}}{{item.changePct}}%
+          </text>
+        </view>
+      </view>
+
+      <!-- 评分和评级 -->
+      <view class="stock-score">
+        <view class="score-main">
+          <text class="score-label">综合评分</text>
+          <text class="score-value {{item.gradeClass}}">{{item.strengthScore}}分</text>
+          <text class="grade-badge {{item.gradeClass}}">{{item.grade}}</text>
+        </view>
+        <view class="score-breakdown">
+          <view class="score-item">
+            <text class="score-item-label">技术</text>
+            <text class="score-item-value">{{item.scoreBreakdown.technical}}</text>
+          </view>
+          <view class="score-item">
+            <text class="score-item-label">估值</text>
+            <text class="score-item-value">{{item.scoreBreakdown.valuation}}</text>
+          </view>
+          <view class="score-item">
+            <text class="score-item-label">盈利</text>
+            <text class="score-item-value">{{item.scoreBreakdown.profitability}}</text>
+          </view>
+          <view class="score-item">
+            <text class="score-item-label">安全</text>
+            <text class="score-item-value">{{item.scoreBreakdown.safety}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 关键指标 -->
+      <view class="stock-indicators">
+        <view class="indicator-item">
+          <text class="indicator-label">PE</text>
+          <text class="indicator-value">{{item.peRatio}}</text>
+        </view>
+        <view class="indicator-item">
+          <text class="indicator-label">PB</text>
+          <text class="indicator-value">{{item.pbRatio}}</text>
+        </view>
+        <view class="indicator-item">
+          <text class="indicator-label">ROE</text>
+          <text class="indicator-value">{{item.roe}}%</text>
+        </view>
+        <view class="indicator-item">
+          <text class="indicator-label">动量</text>
+          <text class="indicator-value {{item.momentum20d >= 0 ? 'price-up' : 'price-down'}}">
+            {{item.momentum20d >= 0 ? '+' : ''}}{{item.momentum20d}}%
+          </text>
+        </view>
+      </view>
+
+      <!-- 推荐理由 -->
+      <view class="stock-reason">
+        <text class="reason-icon">💡</text>
+        <text class="reason-text">{{item.selectionReason}}</text>
+      </view>
+
+      <!-- 行业标签 -->
+      <view class="industry-tag">{{item.industry}}</view>
+    </view>
+  </view>
+
+  <!-- 加载状态 -->
+  <view class="loading" wx:if="{{loading}}">
+    <text>数据加载中...</text>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty" wx:if="{{!loading && stocks.length === 0}}">
+    <view class="empty-icon">📭</view>
+    <view class="empty-text">暂无推荐股票</view>
+  </view>
+
+  <!-- 更新时间 -->
+  <view class="update-time" wx:if="{{updateTime}}">
+    <text>更新时间: {{updateTime}}</text>
+  </view>
+</view>

@@ -1,0 +1,163 @@
+2025-11-04 15:35:51,279 - __main__ - INFO - 股票分析系统启动 - 模式: analysis
+2025-11-04 15:35:51,279 - __main__ - INFO - 执行手动分析...
+2025-11-04 15:35:51,279 - src.analysis.market_analyzer - INFO - 开始执行盘后分析...
+2025-11-04 15:35:51,279 - src.analysis.market_analyzer - WARNING - 本地文件不存在,尝试在线获取沪深300成分股列表(可能较慢)...
+2025-11-04 15:35:53,107 - src.analysis.market_analyzer - INFO - 在线获取成功: 300 只
+2025-11-04 15:35:53,113 - src.analysis.market_analyzer - INFO - 已保存到本地文件: ./data/csi300_stocks.json
+2025-11-04 15:35:53,113 - src.analysis.market_analyzer - INFO - 开始分析沪深300成分股，共 300 只
+2025-11-04 15:35:53,113 - src.analysis.market_analyzer - INFO - 处理第 1 批股票，共 100 只
+2025-11-04 15:36:18,734 - src.data.data_fetcher - ERROR - 获取股票 688047 历史数据失败，已重试 5 次
+2025-11-04 15:37:18,098 - src.data.data_fetcher - ERROR - 获取股票 688506 历史数据失败，已重试 5 次
+2025-11-04 15:53:16,163 - __main__ - INFO - 股票分析系统启动 - 模式: analysis
+2025-11-04 15:53:16,163 - __main__ - INFO - 执行手动分析...
+2025-11-04 15:53:16,163 - src.analysis.market_analyzer - INFO - 开始执行盘后分析...
+2025-11-04 15:53:16,163 - src.analysis.market_analyzer - INFO - 从本地文件加载沪深300成分股列表...
+2025-11-04 15:53:16,163 - src.analysis.market_analyzer - INFO - 成功从本地加载 300 只沪深300成分股 (更新日期: 2025-11-04)
+2025-11-04 15:53:16,164 - src.analysis.market_analyzer - INFO - 开始分析沪深300成分股，共 300 只
+2025-11-04 15:53:16,164 - src.analysis.market_analyzer - INFO - 处理第 1 批股票，共 100 只
+2025-11-04 15:53:41,591 - src.data.data_fetcher - ERROR - 获取股票 688047 历史数据失败，已重试 5 次
+2025-11-04 15:54:41,453 - src.data.data_fetcher - ERROR - 获取股票 688506 历史数据失败，已重试 5 次
+2025-11-04 15:55:33,827 - src.data.data_fetcher - ERROR - 获取股票 688256 历史数据失败，已重试 5 次
+2025-11-04 15:55:38,732 - src.data.data_fetcher - WARNING - 跳过重复股票: 600489
+2025-11-04 15:55:46,304 - src.data.data_fetcher - WARNING - 跳过重复股票: 600515
+2025-11-04 15:55:46,645 - src.data.data_fetcher - INFO - 动量计算进度: 45成功/3失败
+2025-11-04 15:57:17,595 - src.data.data_fetcher - ERROR - 获取股票 688981 历史数据失败，已重试 5 次
+2025-11-04 15:57:48,603 - src.data.data_fetcher - INFO - 动量计算进度: 94成功/4失败
+2025-11-04 15:57:49,421 - src.data.data_fetcher - INFO - 批量获取完成，去重前: 100只，去重后: 98只
+2025-11-04 15:57:49,421 - src.data.data_fetcher - INFO - 20日动量计算结果: 成功94只，失败4只
+2025-11-04 15:57:49,421 - src.data.data_fetcher - INFO - 基本面数据获取结果: 成功98只，失败0只
+2025-11-04 15:57:49,421 - src.data.data_fetcher - INFO - 检测到 4 只失败股票，准备重试...
+2025-11-04 15:57:49,421 - src.data.data_fetcher - INFO - 开始重试 4 只失败股票...
+2025-11-04 15:57:49,421 - src.data.data_fetcher - INFO - 等待10秒后开始重试...
+2025-11-04 15:58:21,540 - src.data.data_fetcher - ERROR - 获取股票 688047 历史数据失败，已重试 5 次
+2025-11-04 15:58:21,541 - src.data.data_fetcher - INFO - 重试成功: 688047 (1/4)
+2025-11-04 15:58:45,708 - src.data.data_fetcher - ERROR - 获取股票 688506 历史数据失败，已重试 5 次
+2025-11-04 15:58:45,709 - src.data.data_fetcher - INFO - 重试成功: 688506 (2/4)
+2025-11-04 15:59:10,886 - src.data.data_fetcher - ERROR - 获取股票 688256 历史数据失败，已重试 5 次
+2025-11-04 15:59:10,887 - src.data.data_fetcher - INFO - 重试成功: 688256 (3/4)
+2025-11-04 15:59:35,381 - src.data.data_fetcher - ERROR - 获取股票 688981 历史数据失败，已重试 5 次
+2025-11-04 15:59:35,382 - src.data.data_fetcher - INFO - 重试成功: 688981 (4/4)
+2025-11-04 15:59:38,874 - src.data.data_fetcher - INFO - 重试完成，成功恢复 4 只股票数据
+2025-11-04 15:59:38,874 - src.analysis.market_analyzer - INFO - 处理第 2 批股票，共 100 只
+2025-11-04 16:01:12,372 - src.data.data_fetcher - INFO - 动量计算进度: 50成功/0失败
+2025-11-04 16:01:31,447 - src.data.data_fetcher - WARNING - 跳过重复股票: 600438
+2025-11-04 16:01:31,448 - src.data.data_fetcher - WARNING - 跳过重复股票: 600809
+2025-11-04 16:01:31,448 - src.data.data_fetcher - WARNING - 跳过重复股票: 601360
+2025-11-04 16:01:31,448 - src.data.data_fetcher - WARNING - 跳过重复股票: 600025
+2025-11-04 16:01:31,448 - src.data.data_fetcher - WARNING - 跳过重复股票: 600346
+2025-11-04 16:01:31,448 - src.data.data_fetcher - WARNING - 跳过重复股票: 603288
+2025-11-04 16:01:31,448 - src.data.data_fetcher - WARNING - 跳过重复股票: 601238
+2025-11-04 16:02:30,627 - src.data.data_fetcher - INFO - 动量计算进度: 93成功/0失败
+2025-11-04 16:02:31,656 - src.data.data_fetcher - INFO - 批量获取完成，去重前: 100只，去重后: 93只
+2025-11-04 16:02:31,656 - src.data.data_fetcher - INFO - 20日动量计算结果: 成功93只，失败0只
+2025-11-04 16:02:31,656 - src.data.data_fetcher - INFO - 基本面数据获取结果: 成功93只，失败0只
+2025-11-04 16:02:31,657 - src.analysis.market_analyzer - INFO - 处理第 3 批股票，共 100 只
+2025-11-04 16:04:02,508 - src.data.data_fetcher - INFO - 动量计算进度: 50成功/0失败
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000858
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000625
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000651
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000568
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000425
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000157
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000063
+2025-11-04 16:05:22,678 - src.data.data_fetcher - WARNING - 跳过重复股票: 000001
+2025-11-04 16:05:23,019 - src.data.data_fetcher - INFO - 动量计算进度: 92成功/0失败
+2025-11-04 16:05:24,170 - src.data.data_fetcher - INFO - 批量获取完成，去重前: 100只，去重后: 92只
+2025-11-04 16:05:24,170 - src.data.data_fetcher - INFO - 20日动量计算结果: 成功92只，失败0只
+2025-11-04 16:05:24,170 - src.data.data_fetcher - INFO - 基本面数据获取结果: 成功92只，失败0只
+2025-11-04 16:05:24,170 - src.analysis.market_analyzer - INFO - 成功获取 287 只股票的数据
+2025-11-04 16:05:24,170 - src.analysis.stock_filter - INFO - 去重后股票数量: 283
+2025-11-04 16:05:24,170 - src.analysis.stock_filter - INFO - PE筛选后剩余 177 只股票
+2025-11-04 16:05:24,171 - src.analysis.stock_filter - INFO - 附加筛选后剩余 68 只股票
+2025-11-04 16:05:24,171 - src.analysis.stock_filter - INFO - 强势筛选后剩余 67 只股票
+2025-11-04 16:05:24,171 - src.analysis.stock_filter - INFO - 最终选择 5 只股票
+2025-11-04 16:05:24,171 - src.data.data_fetcher - INFO - 正在获取市场概况数据(腾讯财经API)...
+2025-11-04 16:05:24,408 - src.data.data_fetcher - INFO - 正在获取全市场A股列表...
+2025-11-04 16:05:32,716 - src.data.data_fetcher - INFO - 获取到 5445 只A股股票
+2025-11-04 16:05:32,716 - src.data.data_fetcher - INFO - 获取到 5445 只A股,准备统计涨跌情况...
+2025-11-04 16:05:33,040 - src.data.data_fetcher - INFO - 市场统计进度: 800/5445 (14.7%)
+2025-11-04 16:05:33,848 - src.data.data_fetcher - INFO - 市场统计进度: 1600/5445 (29.4%)
+2025-11-04 16:05:34,692 - src.data.data_fetcher - INFO - 市场统计进度: 2400/5445 (44.1%)
+2025-11-04 16:05:35,548 - src.data.data_fetcher - INFO - 市场统计进度: 3200/5445 (58.8%)
+2025-11-04 16:05:36,491 - src.data.data_fetcher - INFO - 市场统计进度: 4000/5445 (73.5%)
+2025-11-04 16:05:37,293 - src.data.data_fetcher - INFO - 市场统计进度: 4800/5445 (88.2%)
+2025-11-04 16:05:38,065 - src.data.data_fetcher - INFO - 市场统计进度: 5445/5445 (100.0%)
+2025-11-04 16:05:38,065 - src.data.data_fetcher - INFO - 获取市场数据成功: 总数5445, 上涨1596(30.91%), 下跌3408
+2025-11-04 16:05:38,065 - src.data.data_fetcher - INFO -    指数平均涨跌: -1.36%
+2025-11-04 16:05:38,067 - src.analysis.market_analyzer - INFO - 分析结果已保存到: ./logs/analysis/analysis_20251104_160538.json
+2025-11-04 16:05:38,068 - src.analysis.market_analyzer - ERROR - 生成Markdown报告失败: name 'turnover_display' is not defined
+2025-11-04 16:05:38,068 - src.analysis.market_analyzer - INFO - 盘后分析完成
+2025-12-13 15:40:54,592 - __main__ - INFO - 股票分析系统启动 - 模式: analysis
+2025-12-13 15:40:54,599 - __main__ - INFO - 执行手动分析...
+2025-12-13 15:40:54,599 - src.analysis.market_analyzer - INFO - 开始执行盘后分析...
+2025-12-13 15:40:54,599 - src.analysis.market_analyzer - INFO - 从本地文件加载沪深300成分股列表...
+2025-12-13 15:40:54,600 - src.analysis.market_analyzer - INFO - 成功从本地加载 300 只沪深300成分股 (更新日期: 2025-11-04)
+2025-12-13 15:40:54,600 - src.analysis.market_analyzer - INFO - 开始分析沪深300成分股，共 300 只
+2025-12-13 15:40:54,601 - src.analysis.market_analyzer - INFO - 使用异步批量获取模式 (性能优化)
+2025-12-13 15:40:54,602 - src.data.async_data_fetcher - INFO - 开始批量获取 283 只股票数据 (最大并发: 20)
+2025-12-13 15:40:54,602 - src.data.async_data_fetcher - INFO - 步骤1: 批量获取实时数据...
+2025-12-13 15:40:55,444 - src.data.async_data_fetcher - INFO - 成功获取 283/283 只股票实时数据
+2025-12-13 15:40:55,444 - src.data.async_data_fetcher - INFO - 步骤2: 批量获取基本面数据...
+2025-12-13 15:40:56,179 - src.data.async_data_fetcher - INFO - 步骤3: 批量获取历史数据并计算动量...
+2025-12-13 15:40:57,623 - src.data.async_data_fetcher - INFO - 动量计算成功: 279/283
+2025-12-13 15:40:57,625 - src.data.async_data_fetcher - INFO - 批量获取完成! 用时: 3.02秒, 平均速度: 93.6只/秒
+2025-12-13 15:40:57,628 - src.analysis.market_analyzer - INFO - 成功获取 283 只股票的数据
+2025-12-13 15:40:57,628 - src.analysis.stock_filter - INFO - 去重后股票数量: 283
+2025-12-13 15:40:57,628 - src.analysis.stock_filter - INFO - PE筛选后剩余 194 只股票
+2025-12-13 15:40:57,628 - src.analysis.stock_filter - INFO - 附加筛选后剩余 79 只股票
+2025-12-13 15:40:57,629 - src.analysis.stock_filter - INFO - 强势筛选后剩余 62 只股票
+2025-12-13 15:40:57,629 - src.analysis.stock_filter - INFO - 最终选择 10 只股票 (不限制行业)
+2025-12-13 15:40:57,629 - src.data.async_data_fetcher - INFO - 正在获取市场概况数据...
+2025-12-13 15:40:59,216 - src.data.async_data_fetcher - INFO - 市场概况获取成功: 上涨199, 下跌91, 上涨比例66.33%
+2025-12-13 15:40:59,218 - src.analysis.market_analyzer - INFO - 分析结果已保存到: ./logs/analysis/analysis_20251213_154059.json
+2025-12-13 15:40:59,219 - src.analysis.market_analyzer - INFO - Markdown报告已生成: ./reports/2025年12月13日沪深300分析结果.md
+2025-12-13 15:40:59,219 - src.analysis.market_analyzer - INFO - 盘后分析完成
+2025-12-13 15:43:33,805 - __main__ - INFO - 股票分析系统启动 - 模式: analysis
+2025-12-13 15:43:33,805 - __main__ - INFO - 执行手动分析...
+2025-12-13 15:43:33,806 - src.analysis.market_analyzer - INFO - 开始执行盘后分析...
+2025-12-13 15:43:33,806 - src.analysis.market_analyzer - INFO - 从本地文件加载沪深300成分股列表...
+2025-12-13 15:43:33,806 - src.analysis.market_analyzer - INFO - 成功从本地加载 300 只沪深300成分股 (更新日期: 2025-11-04)
+2025-12-13 15:43:33,806 - src.analysis.market_analyzer - INFO - 开始分析沪深300成分股，共 300 只
+2025-12-13 15:43:33,806 - src.analysis.market_analyzer - INFO - 使用异步批量获取模式 (性能优化)
+2025-12-13 15:43:33,807 - src.data.async_data_fetcher - INFO - 开始批量获取 283 只股票数据 (最大并发: 20)
+2025-12-13 15:43:33,808 - src.data.async_data_fetcher - INFO - 步骤1: 批量获取实时数据...
+2025-12-13 15:43:34,521 - src.data.async_data_fetcher - INFO - 成功获取 283/283 只股票实时数据
+2025-12-13 15:43:34,521 - src.data.async_data_fetcher - INFO - 步骤2: 批量获取基本面数据...
+2025-12-13 15:43:35,247 - src.data.async_data_fetcher - INFO - 步骤3: 批量获取历史数据并计算动量...
+2025-12-13 15:43:36,672 - src.data.async_data_fetcher - INFO - 动量计算成功: 279/283
+2025-12-13 15:43:36,674 - src.data.async_data_fetcher - INFO - 批量获取完成! 用时: 2.87秒, 平均速度: 98.7只/秒
+2025-12-13 15:43:36,677 - src.analysis.market_analyzer - INFO - 成功获取 283 只股票的数据
+2025-12-13 15:43:36,677 - src.analysis.stock_filter - INFO - 去重后股票数量: 283
+2025-12-13 15:43:36,677 - src.analysis.stock_filter - INFO - PE筛选后剩余 194 只股票
+2025-12-13 15:43:36,677 - src.analysis.stock_filter - INFO - 附加筛选后剩余 79 只股票
+2025-12-13 15:43:36,678 - src.analysis.stock_filter - INFO - 强势筛选后剩余 62 只股票
+2025-12-13 15:43:36,678 - src.analysis.stock_filter - INFO - 最终选择 10 只股票 (不限制行业)
+2025-12-13 15:43:36,678 - src.data.async_data_fetcher - INFO - 使用缓存的市场概况数据
+2025-12-13 15:43:36,686 - src.analysis.market_analyzer - INFO - 分析结果已保存到: ./logs/analysis/analysis_20251213_154336.json
+2025-12-13 15:43:36,686 - src.analysis.market_analyzer - INFO - Markdown报告已生成: ./reports/2025年12月13日沪深300分析结果.md
+2025-12-13 15:43:36,687 - src.analysis.market_analyzer - INFO - 盘后分析完成
+2025-12-13 15:50:58,287 - __main__ - INFO - 股票分析系统启动 - 模式: analysis
+2025-12-13 15:50:58,288 - __main__ - INFO - 执行手动分析...
+2025-12-13 15:50:58,288 - src.analysis.market_analyzer - INFO - 开始执行盘后分析...
+2025-12-13 15:50:58,288 - src.analysis.market_analyzer - INFO - 从本地文件加载沪深300成分股列表...
+2025-12-13 15:50:58,288 - src.analysis.market_analyzer - INFO - 成功从本地加载 300 只沪深300成分股 (更新日期: 2025-11-04)
+2025-12-13 15:50:58,289 - src.analysis.market_analyzer - INFO - 开始分析沪深300成分股，共 300 只
+2025-12-13 15:50:58,290 - src.analysis.market_analyzer - INFO - 使用异步批量获取模式 (性能优化)
+2025-12-13 15:50:58,292 - src.data.async_data_fetcher - INFO - 开始批量获取 283 只股票数据 (最大并发: 20)
+2025-12-13 15:50:58,292 - src.data.async_data_fetcher - INFO - 步骤1: 批量获取实时数据...
+2025-12-13 15:50:59,054 - src.data.async_data_fetcher - INFO - 成功获取 283/283 只股票实时数据
+2025-12-13 15:50:59,054 - src.data.async_data_fetcher - INFO - 步骤2: 批量获取基本面数据...
+2025-12-13 15:50:59,665 - src.data.async_data_fetcher - INFO - 步骤3: 批量获取历史数据并计算动量...
+2025-12-13 15:51:01,155 - src.data.async_data_fetcher - INFO - 动量计算成功: 279/283
+2025-12-13 15:51:01,158 - src.data.async_data_fetcher - INFO - 批量获取完成! 用时: 2.87秒, 平均速度: 98.7只/秒
+2025-12-13 15:51:01,162 - src.analysis.market_analyzer - INFO - 成功获取 283 只股票的数据
+2025-12-13 15:51:01,162 - src.analysis.stock_filter - INFO - 去重后股票数量: 283
+2025-12-13 15:51:01,162 - src.analysis.stock_filter - INFO - PE筛选后剩余 194 只股票
+2025-12-13 15:51:01,162 - src.analysis.stock_filter - INFO - 附加筛选后剩余 79 只股票
+2025-12-13 15:51:01,163 - src.analysis.stock_filter - INFO - 强势筛选后剩余 62 只股票
+2025-12-13 15:51:01,163 - src.analysis.stock_filter - INFO - 最终选择 10 只股票 (不限制行业)
+2025-12-13 15:51:01,164 - src.data.async_data_fetcher - INFO - 正在获取市场概况数据...
+2025-12-13 15:51:02,720 - src.data.async_data_fetcher - INFO - 市场概况获取成功: 上涨199, 下跌91, 上涨比例66.33%
+2025-12-13 15:51:02,723 - src.analysis.market_analyzer - INFO - 分析结果已保存到: ./logs/analysis/analysis_20251213_155102.json
+2025-12-13 15:51:02,724 - src.analysis.market_analyzer - INFO - Markdown报告已生成: ./reports/2025年12月13日沪深300分析结果.md
+2025-12-13 15:51:02,724 - src.analysis.market_analyzer - INFO - 盘后分析完成

@@ -20,15 +20,9 @@ cache/
 
 # 日志目录
 logs/
-logs/analysis/*.json
-logs/backtest/*.json
-logs/system/*.log
 
 # 报告目录（生成的报告文件）
 reports/*.md
-
-# 脚本目录
-scripts/
 
 # 备份文件
 *.md.bak
@@ -56,11 +50,6 @@ htmlcov/
 *.tmp
 *.temp
 
-# 数据文件
-data/
-*.csv
-*.xlsx
-*.xls
-
-# 系统缓存
-.DS_Store
+# 构建产物
+*.tar.gz
+*.zip
