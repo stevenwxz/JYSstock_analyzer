@@ -361,8 +361,8 @@ class MarketAnalyzer:
             if selected_stocks:
                 md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
 
-| 排名 | 股票名称 | 代码 | 股价 | PB | PE | ROE | 涨跌幅 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 |
-|------|----------|------|------|------|------|-------|---------|------|------|--------|------|------|------|------|
+| 排名 | 股票名称 | 代码 | 股价 | PB | PE | PR | ROE | 20日动量 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 |
+|------|----------|------|------|------|------|------|-------|---------|-----|------|--------|------|------|------|------|
 """
 
                 for stock in selected_stocks:
@@ -384,7 +384,7 @@ class MarketAnalyzer:
                         safe_score = breakdown.get('safety', 0)
                         div_score = breakdown.get('dividend', 0)
                     
-                                    # 获取股价和计算总市值（如果可能获取总股本数据）
+                    # 获取股价和计算总市值（如果可能获取总股本数据）
                     price = stock.get('price', 0)
                     # 尝试从股票数据中获取总市值信息，如果不存在则尝试计算
                     market_cap = stock.get('market_cap', None)  # 单位是万元
@@ -399,7 +399,18 @@ class MarketAnalyzer:
                         else:
                             market_cap_display = "-"  # 无法获取总市值，显示为"-"
                     
-                    md_content += f"|  {stock.get('rank', 0)} | {stock.get('name', '-')} | {stock.get('code', '-')} | {price:.2f} | {stock.get('pb_ratio', 0):.2f} | {stock.get('pe_ratio', 0):.2f} | {roe_display} | {stock.get('change_pct', 0):+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} |\n"
+                    # 计算PR（市赚率）
+                    pe_ratio = stock.get('pe_ratio', 0)
+                    roe = stock.get('roe', 0)
+                    roe_decimal = roe / 100 if roe > 0 else 0  # ROE是百分比形式，需要转换为小数
+                    pr_display = "-"
+                    if pe_ratio > 0 and roe_decimal > 0:
+                        pr = pe_ratio / (100 * roe_decimal)
+                        pr_display = f"{pr:.2f}"
+                    
+                    momentum_20d = stock.get('momentum_20d', 0)
+                    
+                    md_content += f"|  {stock.get('rank', 0)} | {stock.get('name', '-')} | {stock.get('code', '-')} | {price:.2f} | {stock.get('pb_ratio', 0):.2f} | {stock.get('pe_ratio', 0):.2f} | {pr_display} | {roe_display} | {momentum_20d:+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} |\n"
             
             # 添加筛选统计
             md_content += f"""

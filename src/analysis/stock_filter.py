@@ -11,53 +11,67 @@ class StockFilter:
     def __init__(self, config: Dict = None):
         self.config = config or STOCK_FILTER_CONFIG
 
+    def calculate_pr_ratio(self, stock_data: Dict) -> float:
+        """计算市赚率PR = PE / (100 * ROE)"""
+        try:
+            pe = stock_data.get('pe_ratio', 0)
+            roe = stock_data.get('roe', 0)
+
+            if pe and roe and pe > 0 and roe > 0:
+                pr = pe / (100 * roe)
+                return round(pr, 3)
+            return 0
+        except Exception as e:
+            logger.error(f"计算市赚率PR失败: {e}")
+            return 0
+
     def calculate_strength_score(self, stock_data: Dict) -> Dict:
         """计算股票强势分数 - 增强版,包含基本面评分"""
-        score_breakdown = {
-            'technical': 0,    # 技术面 (30分)
-            'valuation': 0,    # 估值 (25分)
-            'profitability': 0,  # 盈利质量 (30分)
-            'safety': 0,       # 安全性 (10分)
-            'dividend': 0      # 分红 (5分)
+        score_breakdown = {
+            'technical': 0,    # 技术面 (30分)
+            'valuation': 0,    # 估值 (25分)
+            'profitability': 0,  # 盈利质量 (30分)
+            'safety': 0,       # 安全性 (10分)
+            'dividend': 0      # 分红 (5分)
         }
 
         try:
-            # ===== 1. 技术面得分 (30分) =====
-            # 1.1 涨跌幅 (10分)
-            change_pct = stock_data.get('change_pct', 0)
-            if change_pct > 5:
-                score_breakdown['technical'] += 10
-            elif change_pct > 2:
-                score_breakdown['technical'] += 7
-            elif change_pct > 0:
-                score_breakdown['technical'] += 4
-            elif change_pct > -2:
-                score_breakdown['technical'] += 2
-
-            # 1.2 动量 (15分)
-            momentum = stock_data.get('momentum_20d', 0)
-            if momentum > 15:
-                score_breakdown['technical'] += 15
-            elif momentum > 10:
-                score_breakdown['technical'] += 12
-            elif momentum > 5:
-                score_breakdown['technical'] += 8
-            elif momentum > 0:
-                score_breakdown['technical'] += 4
-
-            # 1.3 流动性 (5分) - 基于换手率
-            # 使用换手率而非成交额，更公平地评估流动性（消除市值影响）
-            turnover_rate = stock_data.get('turnover_rate', 0)
-            if turnover_rate and 1 <= turnover_rate < 3:  # 最佳流动性：适中活跃
-                score_breakdown['technical'] += 5
-            elif turnover_rate and 3 <= turnover_rate < 5:  # 良好流动性
-                score_breakdown['technical'] += 4
-            elif turnover_rate and 5 <= turnover_rate < 8:  # 流动性充足但略偏高
-                score_breakdown['technical'] += 3
-            elif turnover_rate and 0.5 <= turnover_rate < 1:  # 流动性偏低但可接受
-                score_breakdown['technical'] += 2
-            elif turnover_rate and turnover_rate >= 8:  # 换手过高，投机性强
-                score_breakdown['technical'] += 1
+            # ===== 1. 技术面得分 (30分) =====
+            # 1.1 涨跌幅 (10分)
+            change_pct = stock_data.get('change_pct', 0)
+            if change_pct > 5:
+                score_breakdown['technical'] += 10
+            elif change_pct > 2:
+                score_breakdown['technical'] += 7
+            elif change_pct > 0:
+                score_breakdown['technical'] += 4
+            elif change_pct > -2:
+                score_breakdown['technical'] += 2
+
+            # 1.2 动量 (15分)
+            momentum = stock_data.get('momentum_20d', 0)
+            if momentum > 15:
+                score_breakdown['technical'] += 15
+            elif momentum > 10:
+                score_breakdown['technical'] += 12
+            elif momentum > 5:
+                score_breakdown['technical'] += 8
+            elif momentum > 0:
+                score_breakdown['technical'] += 4
+
+            # 1.3 流动性 (5分) - 基于换手率
+            # 使用换手率而非成交额，更公平地评估流动性（消除市值影响）
+            turnover_rate = stock_data.get('turnover_rate', 0)
+            if turnover_rate and 1 <= turnover_rate < 3:  # 最佳流动性：适中活跃
+                score_breakdown['technical'] += 5
+            elif turnover_rate and 3 <= turnover_rate < 5:  # 良好流动性
+                score_breakdown['technical'] += 4
+            elif turnover_rate and 5 <= turnover_rate < 8:  # 流动性充足但略偏高
+                score_breakdown['technical'] += 3
+            elif turnover_rate and 0.5 <= turnover_rate < 1:  # 流动性偏低但可接受
+                score_breakdown['technical'] += 2
+            elif turnover_rate and turnover_rate >= 8:  # 换手过高，投机性强
+                score_breakdown['technical'] += 1
             # 换手率 < 0.5% 流动性不足，不得分
 
             # ===== 2. 估值得分 (25分) =====
@@ -83,15 +97,15 @@ class StockFilter:
                 score_breakdown['valuation'] += 2
             # PB >= 10 不得分
 
-            # 2.3 PEG (5分) - 降低权重,因为是估算值
-            peg = stock_data.get('peg', 0)
-            if peg and 0 < peg < 1:
-                score_breakdown['valuation'] += 5
-            elif peg and 1 <= peg < 1.5:
-                score_breakdown['valuation'] += 3
-            elif peg and 1.5 <= peg < 2:
-                score_breakdown['valuation'] += 1
-            # PEG >= 2 不得分
+            # 2.3 PR市赚率 (5分) - 使用更可靠的估值指标
+            pr = self.calculate_pr_ratio(stock_data)
+            if pr and 0 < pr < 0.8:
+                score_breakdown['valuation'] += 5  # PR<0.8 表示明显低估
+            elif pr and 0.8 <= pr < 1:
+                score_breakdown['valuation'] += 3  # PR在0.8-1之间 表示略有低估
+            elif pr and 1 <= pr < 1.2:
+                score_breakdown['valuation'] += 2  # PR在1-1.2之间 表示略高估但仍可接受
+            # PR >= 1.2 不得分
 
             # ===== 3. 盈利质量得分 (30分) - 核心 =====
             # 3.1 ROE (15分)
@@ -116,37 +130,37 @@ class StockFilter:
             elif profit_growth and profit_growth > 0:
                 score_breakdown['profitability'] += 4
 
-            # ===== 4. 安全性得分 (10分) - 基于现有数据的简化评分 =====
-            # 由于资产负债率等财务数据无法获取,使用现有指标构建安全性评分
-
-            # 4.1 基于PB的安全边际 (3分) - 从"安全"角度评分,范围严格
-            pb = stock_data.get('pb_ratio', 0)
-            if pb and 0 < pb < 1.0:  # 破净,极度安全
-                score_breakdown['safety'] += 3
-            elif pb and 1.0 <= pb < 1.5:  # 接近破净,很安全
-                score_breakdown['safety'] += 2
-            elif pb and 1.5 <= pb < 2.5:  # 低估值区,有安全边际
-                score_breakdown['safety'] += 1
-            # PB >= 2.5 安全性不加分
-
-            # 4.2 基于股息率的稳定性 (3分)
-            div_yield = stock_data.get('dividend_yield', 0)
-            if div_yield and div_yield > 5:  # 高分红,经营稳定
-                score_breakdown['safety'] += 3
-            elif div_yield and div_yield > 3:
-                score_breakdown['safety'] += 2
-            elif div_yield and div_yield > 1:
-                score_breakdown['safety'] += 1
-            # 股息率 <= 1% 不得分
-
-            # 4.3 基于换手率的波动性 (4分) - 增加权重
-            turnover_rate = stock_data.get('turnover_rate', 0)
-            if turnover_rate and 0 < turnover_rate < 2:  # 低换手,筹码稳定
-                score_breakdown['safety'] += 4
-            elif turnover_rate and 2 <= turnover_rate < 5:  # 换手适中
-                score_breakdown['safety'] += 3
-            elif turnover_rate and 5 <= turnover_rate < 10:  # 换手偏高
-                score_breakdown['safety'] += 1
+            # ===== 4. 安全性得分 (10分) - 基于现有数据的简化评分 =====
+            # 由于资产负债率等财务数据无法获取,使用现有指标构建安全性评分
+
+            # 4.1 基于PB的安全边际 (3分) - 从"安全"角度评分,范围严格
+            pb = stock_data.get('pb_ratio', 0)
+            if pb and 0 < pb < 1.0:  # 破净,极度安全
+                score_breakdown['safety'] += 3
+            elif pb and 1.0 <= pb < 1.5:  # 接近破净,很安全
+                score_breakdown['safety'] += 2
+            elif pb and 1.5 <= pb < 2.5:  # 低估值区,有安全边际
+                score_breakdown['safety'] += 1
+            # PB >= 2.5 安全性不加分
+
+            # 4.2 基于股息率的稳定性 (3分)
+            div_yield = stock_data.get('dividend_yield', 0)
+            if div_yield and div_yield > 5:  # 高分红,经营稳定
+                score_breakdown['safety'] += 3
+            elif div_yield and div_yield > 3:
+                score_breakdown['safety'] += 2
+            elif div_yield and div_yield > 1:
+                score_breakdown['safety'] += 1
+            # 股息率 <= 1% 不得分
+
+            # 4.3 基于换手率的波动性 (4分) - 增加权重
+            turnover_rate = stock_data.get('turnover_rate', 0)
+            if turnover_rate and 0 < turnover_rate < 2:  # 低换手,筹码稳定
+                score_breakdown['safety'] += 4
+            elif turnover_rate and 2 <= turnover_rate < 5:  # 换手适中
+                score_breakdown['safety'] += 3
+            elif turnover_rate and 5 <= turnover_rate < 10:  # 换手偏高
+                score_breakdown['safety'] += 1
             # 换手率 >= 10% 说明投机性强,不得分
 
             # ===== 5. 分红得分 (5分) =====
@@ -176,19 +190,19 @@ class StockFilter:
             'grade': grade
         }
 
-    def _get_grade(self, score: float) -> str:
-        """根据分数获取评级"""
-        if score >= 85:
-            return 'A+'
-        elif score >= 75:
-            return 'A'
-        elif score >= 65:
-            return 'B+'
-        elif score >= 55:
-            return 'B'
-        elif score >= 45:
-            return 'C'
-        else:
+    def _get_grade(self, score: float) -> str:
+        """根据分数获取评级"""
+        if score >= 85:
+            return 'A+'
+        elif score >= 75:
+            return 'A'
+        elif score >= 65:
+            return 'B+'
+        elif score >= 55:
+            return 'B'
+        elif score >= 45:
+            return 'C'
+        else:
             return 'D'
 
     def filter_by_pe_ratio(self, stocks_data: List[Dict]) -> List[Dict]:
@@ -315,62 +329,62 @@ class StockFilter:
             logger.error(f"股票选择失败: {e}")
             return []
 
-    def _generate_selection_reason(self, stock: Dict) -> str:
-        """生成选择理由 - 包含基本面指标"""
-        reasons = []
-
-        # 基本信息
-        pe_ratio = stock.get('pe_ratio', 0)
-        pb_ratio = stock.get('pb_ratio', 0)
-        change_pct = stock.get('change_pct', 0)
-        momentum = stock.get('momentum_20d', 0)
-        strength_score = stock.get('strength_score', 0)
-        strength_grade = stock.get('strength_grade', '')
-
-        # 基本面指标
-        roe = stock.get('roe', 0)
-        profit_growth = stock.get('profit_growth', 0)
-        dividend_yield = stock.get('dividend_yield', 0)
-        turnover_rate = stock.get('turnover_rate', 0)
-
-        # 估值
-        if pe_ratio:
-            reasons.append(f"PE={pe_ratio:.2f}")
-        if pb_ratio:
-            reasons.append(f"PB={pb_ratio:.2f}")
-
-        # 技术面
-        if change_pct > 3:
-            reasons.append("当日强势上涨")
-        elif change_pct > 0:
-            reasons.append("当日上涨")
-
-        if momentum > 10:
-            reasons.append("20日动量强劲")
-        elif momentum > 0:
-            reasons.append("20日动量向上")
-
-        # 基本面
-        if roe and roe > 15:
-            reasons.append(f"ROE优秀({roe:.1f}%)")
-        elif roe and roe > 10:
-            reasons.append(f"ROE良好({roe:.1f}%)")
-
-        if profit_growth and profit_growth > 20:
-            reasons.append(f"高成长({profit_growth:.1f}%)")
-        elif profit_growth and profit_growth > 10:
-            reasons.append(f"成长性好({profit_growth:.1f}%)")
-
-        # 安全性 - 基于新的评分逻辑
-        safety_score = stock.get('strength_score_detail', {}).get('breakdown', {}).get('safety', 0)
-        if safety_score >= 8:
-            reasons.append("安全性高")
-        elif safety_score >= 6:
-            reasons.append("安全性良好")
-
-        # 综合评分
-        reasons.append(f"综合{strength_grade}级({strength_score:.1f}分)")
-
+    def _generate_selection_reason(self, stock: Dict) -> str:
+        """生成选择理由 - 包含基本面指标"""
+        reasons = []
+
+        # 基本信息
+        pe_ratio = stock.get('pe_ratio', 0)
+        pb_ratio = stock.get('pb_ratio', 0)
+        change_pct = stock.get('change_pct', 0)
+        momentum = stock.get('momentum_20d', 0)
+        strength_score = stock.get('strength_score', 0)
+        strength_grade = stock.get('strength_grade', '')
+
+        # 基本面指标
+        roe = stock.get('roe', 0)
+        profit_growth = stock.get('profit_growth', 0)
+        dividend_yield = stock.get('dividend_yield', 0)
+        turnover_rate = stock.get('turnover_rate', 0)
+
+        # 估值
+        if pe_ratio:
+            reasons.append(f"PE={pe_ratio:.2f}")
+        if pb_ratio:
+            reasons.append(f"PB={pb_ratio:.2f}")
+
+        # 技术面
+        if change_pct > 3:
+            reasons.append("当日强势上涨")
+        elif change_pct > 0:
+            reasons.append("当日上涨")
+
+        if momentum > 10:
+            reasons.append("20日动量强劲")
+        elif momentum > 0:
+            reasons.append("20日动量向上")
+
+        # 基本面
+        if roe and roe > 15:
+            reasons.append(f"ROE优秀({roe:.1f}%)")
+        elif roe and roe > 10:
+            reasons.append(f"ROE良好({roe:.1f}%)")
+
+        if profit_growth and profit_growth > 20:
+            reasons.append(f"高成长({profit_growth:.1f}%)")
+        elif profit_growth and profit_growth > 10:
+            reasons.append(f"成长性好({profit_growth:.1f}%)")
+
+        # 安全性 - 基于新的评分逻辑
+        safety_score = stock.get('strength_score_detail', {}).get('breakdown', {}).get('safety', 0)
+        if safety_score >= 8:
+            reasons.append("安全性高")
+        elif safety_score >= 6:
+            reasons.append("安全性良好")
+
+        # 综合评分
+        reasons.append(f"综合{strength_grade}级({strength_score:.1f}分)")
+
         return "；".join(reasons)
 
     def get_filter_summary(self, original_count: int, final_count: int) -> Dict:

@@ -288,6 +288,18 @@ class EmailSender:
                     turnover = stock.get('turnover', 0)
                     turnover_rate = stock.get('turnover_rate', 0)
 
+                    # 获取PR（市赚率）- 直接计算PR值
+                    pe = stock.get('pe_ratio', 0)
+                    roe = stock.get('roe', 0)
+                    pr = 0
+                    if pe and roe and pe > 0 and roe > 0:
+                        pr = pe / roe  # ROE已是百分比形式，直接计算
+                    pr_display = f"{pr:.2f}" if pr and pr > 0 else "-"
+                    
+                    # 获取20日动量
+                    momentum_20d = stock.get('momentum_20d', 0)
+                    momentum_class = "positive" if momentum_20d > 0 else "negative" if momentum_20d < 0 else "neutral"
+
                     html += f"""
                         <div class="stock-card">
                             <h3>#{rank} {stock.get('name', '')} ({stock.get('code', '')}) {trend_icon}</h3>
@@ -297,12 +309,16 @@ class EmailSender:
                                     <div class="stock-info-value">¥{stock.get('price', 0):.2f}</div>
                                 </div>
                                 <div class="stock-info-item">
-                                    <div class="stock-info-label">涨跌幅</div>
-                                    <div class="stock-info-value {change_class}">{change_pct:+.2f}%</div>
+                                    <div class="stock-info-label">20日动量</div>
+                                    <div class="stock-info-value {momentum_class}">{momentum_20d:+.2f}%</div>
                                 </div>
                                 <div class="stock-info-item">
                                     <div class="stock-info-label">PE市盈率</div>
                                     <div class="stock-info-value">{stock.get('pe_ratio', 0):.2f}倍</div>
+                                </div>
+                                <div class="stock-info-item">
+                                    <div class="stock-info-label">PR市赚率</div>
+                                    <div class="stock-info-value">{pr_display}</div>
                                 </div>
                                 <div class="stock-info-item">
                                     <div class="stock-info-label">强势评分</div>
@@ -314,7 +330,7 @@ class EmailSender:
                                 </div>
                                 <div class="stock-info-item">
                                     <div class="stock-info-label">20日动量</div>
-                                    <div class="stock-info-value">{stock.get('momentum_20d', 0):+.2f}%</div>
+                                    <div class="stock-info-value">{momentum_20d:+.2f}%</div>
                                 </div>
                             </div>
                             <p><strong>选择理由:</strong> {stock.get('selection_reason', '符合筛选条件')}</p>
@@ -331,8 +347,9 @@ class EmailSender:
                                 <th>股价</th>
                                 <th>PB</th>
                                 <th>PE</th>
+                                <th>PR</th>
                                 <th>ROE</th>
-                                <th>涨跌幅</th>
+                                <th>20日动量</th>
                                 <th>评分</th>
                                 <th>评级</th>
                                 <th>技术面</th>
@@ -344,8 +361,9 @@ class EmailSender:
                 """
 
                 for stock in selected_stocks:
-                    change_pct = stock.get('change_pct', 0)
-                    change_class = "positive" if change_pct > 0 else "negative" if change_pct < 0 else "neutral"
+                    # 获取20日动量
+                    momentum_20d = stock.get('momentum_20d', 0)
+                    momentum_class = "positive" if momentum_20d > 0 else "negative" if momentum_20d < 0 else "neutral"
                     turnover_rate = stock.get('turnover_rate', 0)
                     turnover_mark = " ⭐" if turnover_rate > 5 else ""
                     roe = stock.get('roe', 0)
@@ -356,6 +374,13 @@ class EmailSender:
                     pb = stock.get('pb_ratio', 0)
                     pe_ratio = stock.get('pe_ratio', 0)
                     strength_score = stock.get('strength_score', 0)
+
+                    # 获取PR（市赚率）- 直接计算PR值
+                    roe = stock.get('roe', 0)
+                    pr = 0
+                    if pe_ratio and roe and pe_ratio > 0 and roe > 0:
+                        pr = pe_ratio / roe  # ROE已是百分比形式，直接计算
+                    pr_display = f"{pr:.2f}" if pr and pr > 0 else "-"
 
                     # 获取分项得分
                     score_detail = stock.get('strength_score_detail', {})
@@ -380,8 +405,9 @@ class EmailSender:
                                 <td>{price:.2f}</td>
                                 <td>{pb:.2f}</td>
                                 <td>{pe_ratio:.2f}</td>
+                                <td>{pr_display}</td>
                                 <td class="{roe_class}">{roe_display}</td>
-                                <td class="{change_class}">{change_pct:+.2f}%</td>
+                                <td class="{momentum_class}">{momentum_20d:+.2f}%</td>
                                 <td>{strength_score:.0f}</td>
                                 <td><strong>{grade}</strong></td>
                                 <td>{tech_score}</td>
