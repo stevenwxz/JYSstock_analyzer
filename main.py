@@ -68,7 +68,7 @@ def main():
             print("每个交易日 08:30 发送邮件报告")
             print("分析目标: A股 + 港股通")
             print("筛选条件: 强势股票，PE < 30")
-            print("邮件发送: 1120311927@qq.com")
+            print("邮件发送: 请在.env文件中配置收件人邮箱")
             print("=" * 60)
             print("按 Ctrl+C 停止程序")
             print("=" * 60)
