@@ -53,3 +53,7 @@ htmlcov/
 # 构建产物
 *.tar.gz
 *.zip
+
+# Claude Code 本地设置
+.claude/settings.local.json
+.claude/settings.json
