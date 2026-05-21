@@ -324,7 +324,7 @@ class MarketAnalyzer:
 - **数据源**: 实时交易数据
 - **股票池**: 沪深300成分股
 - **目标股票数**: {total_analyzed}只
-- **筛选条件**: PE ≤ {config.get('max_pe_ratio', 30)}, 成交额 ≥ {config.get('min_turnover', 50000000)/10000:.0f}万元
+- **筛选条件**: PE ≤ {config.get('max_pe_ratio', 30)}, 换手率 ≥ {config.get('min_turnover_rate', 1.0)}%
 
 ## 🏆 **Top {len(selected_stocks)} 精选股票**
 
@@ -360,6 +360,8 @@ class MarketAnalyzer:
             # 添加候选股票表格
             if selected_stocks:
                 md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
+
+> ⚠️ **免责声明**: 本报告仅供参考，不构成投资建议。股市有风险，投资需谨慎。
 
 | 排名 | 股票名称 | 代码 | 股价 | PB | PE | PR | ROE | 20日动量 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 |
 |------|----------|------|------|------|------|------|-------|---------|-----|------|--------|------|------|------|------|
@@ -423,7 +425,7 @@ class MarketAnalyzer:
 
 ### 📊 **筛选标准**
 - **PE筛选**: PE ≤ {config.get('max_pe_ratio', 30)}
-- **成交额筛选**: 成交额 ≥ {config.get('min_turnover', 50000000)/10000:.0f}万元
+- **换手率筛选**: 换手率 ≥ {config.get('min_turnover_rate', 1.0)}%
 - **强势分数**: ≥ {config.get('min_strength_score', 50)}
 - **数量限制**: 最多推荐{config.get('max_stocks', 3)}只股票
 

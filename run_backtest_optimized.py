@@ -63,7 +63,7 @@ class OptimizedBacktest:
                 if time.time() - os.path.getmtime(cache_file) < (expire_days * 86400):
                     with open(cache_file, 'rb') as f:
                         return pickle.load(f)
-            except:
+            except Exception:
                 pass
         return None
 
@@ -90,7 +90,7 @@ class OptimizedBacktest:
                     stock_name = str(name[0])
                     self.stock_name_cache[stock_code] = stock_name
                     return stock_name
-        except:
+        except Exception:
             pass
 
         # 如果获取失败，使用代码作为名称
@@ -196,7 +196,7 @@ class OptimizedBacktest:
                     pe_value = row['市盈率']
                     if pe_value and pe_value > 0:
                         final_pe_ratio = float(pe_value)
-                except:
+                except Exception:
                     pass
 
             # 计算20日动量
@@ -239,7 +239,7 @@ class OptimizedBacktest:
                 if next_date.weekday() < 5:
                     return next_date.strftime('%Y-%m-%d')
             return (current + timedelta(days=days)).strftime('%Y-%m-%d')
-        except:
+        except Exception:
             return date
 
     def fetch_pe_ratios_batch(self, stock_codes: list) -> dict:
@@ -258,7 +258,7 @@ class OptimizedBacktest:
                 # 每50个股票显示一次进度
                 if (i + 1) % 50 == 0:
                     logger.info(f"   进度: {i+1}/{len(stock_codes)}")
-            except:
+            except Exception:
                 pass
 
         logger.info(f"✅ 成功获取 {success_count}/{len(stock_codes)} 只股票的PE数据")

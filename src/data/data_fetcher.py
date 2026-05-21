@@ -168,27 +168,27 @@ class StockDataFetcher:
                                 except (ValueError, IndexError):
                                     pass
 
-                            # 获取PE值 - 调整优先级：优先使用基本面PE，然后是TTM PE，静态PE，最后动态PE
-                            pe_ratio = None
-                            
-                            # 按优先级顺序尝试不同的PE值
-                            pe_fields = [
-                                ('基本面PE', data_parts[39] if len(data_parts) > 39 else None),  # 字段39 - 基本面PE
-                                ('TTM PE', data_parts[22] if len(data_parts) > 22 else None),     # 字段22 - TTM PE
-                                ('静态PE', data_parts[15] if len(data_parts) > 15 else None),     # 字段15 - 静态PE
-                                ('动态PE', data_parts[14] if len(data_parts) > 14 else None)      # 字段14 - 动态PE
-                            ]
-                            
-                            for pe_name, pe_str in pe_fields:
-                                if pe_str and pe_str != '':
-                                    try:
-                                        pe_value = float(pe_str)
-                                        # 过滤异常PE值（大于1000或小于0的值）
-                                        if pe_value > 0 and pe_value < 1000:
-                                            pe_ratio = pe_value
-                                            logger.debug(f"{stock_code} 使用{pe_name}: {pe_value:.2f}")
-                                            break  # 找到合适的PE值就停止
-                                    except ValueError:
+                            # 获取PE值 - 调整优先级：优先使用基本面PE，然后是TTM PE，静态PE，最后动态PE
+                            pe_ratio = None
+                            
+                            # 按优先级顺序尝试不同的PE值
+                            pe_fields = [
+                                ('基本面PE', data_parts[39] if len(data_parts) > 39 else None),  # 字段39 - 基本面PE
+                                ('TTM PE', data_parts[22] if len(data_parts) > 22 else None),     # 字段22 - TTM PE
+                                ('静态PE', data_parts[15] if len(data_parts) > 15 else None),     # 字段15 - 静态PE
+                                ('动态PE', data_parts[14] if len(data_parts) > 14 else None)      # 字段14 - 动态PE
+                            ]
+                            
+                            for pe_name, pe_str in pe_fields:
+                                if pe_str and pe_str != '':
+                                    try:
+                                        pe_value = float(pe_str)
+                                        # 过滤异常PE值（大于1000或小于0的值）
+                                        if pe_value > 0 and pe_value < 1000:
+                                            pe_ratio = pe_value
+                                            logger.debug(f"{stock_code} 使用{pe_name}: {pe_value:.2f}")
+                                            break  # 找到合适的PE值就停止
+                                    except ValueError:
                                         continue
 
                             # 获取PB值
@@ -249,8 +249,6 @@ class StockDataFetcher:
                     market = 'sh'
                 elif stock_code.startswith('0') or stock_code.startswith('3'):
                     market = 'sz'
-                elif stock_code.startswith('688'):
-                    market = 'sh'
                 else:
                     market = 'sz'
 
@@ -334,30 +332,30 @@ class StockDataFetcher:
                                 pass
 
                         # 获取PE用于估算PEG（简化版：使用行业平均增长率15%）
-                        pe_ratio = None
-                        peg = None
-                        if data_parts[39]:
-                            try:
-                                pe_value = float(data_parts[39])
-                                # 过滤异常PE值（大于100或小于0的值），但仍允许相对较高的基本面PE值
-                                if pe_value > 0 and pe_value < 200:
-                                    pe_ratio = pe_value
-                                    # 简化PEG计算：假设平均增长率15%
-                                    # 如果PB很低(<1),假设增长更高(20%)
-                                    # 如果PB很高(>5),假设增长较低(10%)
-                                    if pb_ratio:
-                                        if pb_ratio < 1:
-                                            assumed_growth = 20
-                                        elif pb_ratio > 5:
-                                            assumed_growth = 10
-                                        else:
-                                            assumed_growth = 15
-                                    else:
-                                        assumed_growth = 15
-
-                                    peg = pe_ratio / assumed_growth
-                            except (ValueError, TypeError):
-                                # 如果解析失败，保持pe_ratio为None
+                        pe_ratio = None
+                        peg = None
+                        if data_parts[39]:
+                            try:
+                                pe_value = float(data_parts[39])
+                                # 过滤异常PE值（大于100或小于0的值），但仍允许相对较高的基本面PE值
+                                if pe_value > 0 and pe_value < 200:
+                                    pe_ratio = pe_value
+                                    # 简化PEG计算：假设平均增长率15%
+                                    # 如果PB很低(<1),假设增长更高(20%)
+                                    # 如果PB很高(>5),假设增长较低(10%)
+                                    if pb_ratio:
+                                        if pb_ratio < 1:
+                                            assumed_growth = 20
+                                        elif pb_ratio > 5:
+                                            assumed_growth = 10
+                                        else:
+                                            assumed_growth = 15
+                                    else:
+                                        assumed_growth = 15
+
+                                    peg = pe_ratio / assumed_growth
+                            except (ValueError, TypeError):
+                                # 如果解析失败，保持pe_ratio为None
                                 pass
                         roe = None
                         if pb_ratio and pe_ratio and pe_ratio > 0:
@@ -382,27 +380,25 @@ class StockDataFetcher:
                             except:
                                 profit_growth = None
 
-                        # 基于现有数据推算财务健康度评分
-                        financial_health_score = self._calculate_financial_health(
-                            pb_ratio, dividend_yield, pe_ratio, turnover_rate
+                        # 基于现有数据推算财务健康度评分
+                        financial_health_score = self._calculate_financial_health(
+                            pb_ratio, dividend_yield, pe_ratio, turnover_rate
                         )
 
-                        return {
-                            'pb_ratio': pb_ratio,
-                            'dividend_yield': dividend_yield,
-                            'peg': peg,  # 简化版PEG
-                            'turnover_rate': turnover_rate,
-                            'financial_health_score': financial_health_score,
-                            'roe': roe,  # 通过PB/PE计算得出! ⭐
-                            'profit_growth': profit_growth,  # 通过ROE估算
-                            # 以下字段暂时无法获取
-                            'debt_ratio': None,  # 腾讯API不提供
-                            'current_ratio': None,
-                            'gross_margin': None,
-                            # 不设置market_cap和total_shares为None，保留实时数据中的值
+                        return {
+                            'pb_ratio': pb_ratio,
+                            'dividend_yield': dividend_yield,
+                            'peg': peg,  # 简化版PEG
+                            'turnover_rate': turnover_rate,
+                            'financial_health_score': financial_health_score,
+                            'roe': roe,  # 通过PB/PE计算得出! ⭐
+                            'profit_growth': profit_growth,  # 通过ROE估算
+                            # 以下字段暂时无法获取
+                            'debt_ratio': None,  # 腾讯API不提供
+                            'current_ratio': None,
+                            'gross_margin': None,
+                            # 不设置market_cap和total_shares为None，保留实时数据中的值
                         }
-
-                        return fundamental_data
 
                 # 重试
                 if attempt < max_retries - 1:
@@ -417,18 +413,18 @@ class StockDataFetcher:
                     time.sleep(backoff_time)
                     continue
 
-        return {
-                'pb_ratio': None,
-                'dividend_yield': None,
-                'peg': None,
-                'turnover_rate': None,
-                'financial_health_score': 0,
-                'roe': None,
-                'profit_growth': None,
-                'debt_ratio': None,
-                'current_ratio': None,
-                'gross_margin': None,
-                # 不设置market_cap和total_shares为None，保留实时数据中的值
+        return {
+                'pb_ratio': None,
+                'dividend_yield': None,
+                'peg': None,
+                'turnover_rate': None,
+                'financial_health_score': 0,
+                'roe': None,
+                'profit_growth': None,
+                'debt_ratio': None,
+                'current_ratio': None,
+                'gross_margin': None,
+                # 不设置market_cap和total_shares为None，保留实时数据中的值
             }
 
     def _calculate_financial_health(self, pb: Optional[float], div_yield: Optional[float],
@@ -511,8 +507,6 @@ class StockDataFetcher:
                     market = 'sh'
                 elif stock_code.startswith('0') or stock_code.startswith('3'):
                     market = 'sz'
-                elif stock_code.startswith('688'):
-                    market = 'sh'
                 else:
                     market = 'sz'
 

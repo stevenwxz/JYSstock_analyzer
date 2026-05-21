@@ -288,12 +288,12 @@ class EmailSender:
                     turnover = stock.get('turnover', 0)
                     turnover_rate = stock.get('turnover_rate', 0)
 
-                    # 获取PR（市赚率）- 直接计算PR值
+                    # 获取PR（市赚率）- PR = PE / (100 * ROE)
                     pe = stock.get('pe_ratio', 0)
                     roe = stock.get('roe', 0)
                     pr = 0
                     if pe and roe and pe > 0 and roe > 0:
-                        pr = pe / roe  # ROE已是百分比形式，直接计算
+                        pr = pe / (100 * roe)
                     pr_display = f"{pr:.2f}" if pr and pr > 0 else "-"
                     
                     # 获取20日动量
@@ -327,10 +327,6 @@ class EmailSender:
                                 <div class="stock-info-item">
                                     <div class="stock-info-label">换手率</div>
                                     <div class="stock-info-value">{turnover_rate:.2f}%</div>
-                                </div>
-                                <div class="stock-info-item">
-                                    <div class="stock-info-label">20日动量</div>
-                                    <div class="stock-info-value">{momentum_20d:+.2f}%</div>
                                 </div>
                             </div>
                             <p><strong>选择理由:</strong> {stock.get('selection_reason', '符合筛选条件')}</p>
@@ -375,11 +371,11 @@ class EmailSender:
                     pe_ratio = stock.get('pe_ratio', 0)
                     strength_score = stock.get('strength_score', 0)
 
-                    # 获取PR（市赚率）- 直接计算PR值
+                    # 获取PR（市赚率）- PR = PE / (100 * ROE)
                     roe = stock.get('roe', 0)
                     pr = 0
                     if pe_ratio and roe and pe_ratio > 0 and roe > 0:
-                        pr = pe_ratio / roe  # ROE已是百分比形式，直接计算
+                        pr = pe_ratio / (100 * roe)
                     pr_display = f"{pr:.2f}" if pr and pr > 0 else "-"
 
                     # 获取分项得分
@@ -692,7 +688,7 @@ class EmailSender:
                 if server:
                     try:
                         server.quit()
-                    except:
+                    except Exception:
                         pass
 
         except smtplib.SMTPException as e:
