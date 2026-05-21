@@ -31,7 +31,9 @@ python run_backtest_optimized.py
 ## 架构
 
 **stock_analyzer/** — Python后端（作为git子模块引用）
-- `src/data/data_fetcher.py` — 通过akshare获取A股实时/历史数据
+- `src/data/data_fetcher.py` — 通过腾讯财经API获取A股实时数据
+- `src/data/async_data_fetcher.py` — 异步批量获取（默认，并发20）
+- `src/data/financial_report_fetcher.py` — 通过akshare获取真实财报数据（ROE、利润增长率）
 - `src/analysis/stock_filter.py` — 核心评分筛选逻辑（技术面30分+估值25分+盈利30分+安全性10分+股息5分）
 - `src/analysis/market_analyzer.py` — 市场分析协调器
 - `src/notification/email_sender.py` — QQ邮箱SMTP发送HTML报告
@@ -43,10 +45,19 @@ python run_backtest_optimized.py
 ## 数据流
 
 ```
-akshare API → data_fetcher → stock_filter(评分筛选) → market_analyzer → 输出
-                                                                          ├── email_sender (邮件)
-                                                                          └── reports/ (Markdown报告)
+腾讯财经API → async_data_fetcher(实时数据+基本面) → financial_report_fetcher(真实财报覆盖ROE/利润增长)
+    ↓
+stock_filter(评分筛选) → market_analyzer → 输出
+                                            ├── email_sender (邮件)
+                                            └── reports/ (Markdown报告)
 ```
+
+## 财报数据策略
+
+- ROE：取最近年报（ak.stock_yjbb_em(date='20251231')），代表稳定盈利能力
+- 利润增长率：取最新季报（ak.stock_yjbb_em(date='20260331')），代表当前趋势
+- 缓存在 `cache/financial_reports/` 目录，每天一份JSON文件
+- 获取失败时降级为 PB/PE 反推估算值
 
 ## 注意事项
 
