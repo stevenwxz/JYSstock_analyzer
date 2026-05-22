@@ -12,6 +12,11 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
+os.environ['NO_PROXY'] = '*'
+os.environ['no_proxy'] = '*'
+for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+    os.environ.pop(key, None)
+
 import akshare as ak
 import pandas as pd
 import numpy as np
@@ -71,25 +76,34 @@ def fetch_all_daily_data(stock_codes, start_date, end_date):
     def _fetch():
         all_data = {}
         total = len(stock_codes)
+        failed_codes = []
         for i, code in enumerate(stock_codes):
-            try:
-                df = ak.stock_zh_a_hist(
-                    symbol=code, period='daily',
-                    start_date=start_date.replace('-', ''),
-                    end_date=end_date.replace('-', ''),
-                    adjust='qfq'
-                )
-                if not df.empty:
-                    df['日期'] = pd.to_datetime(df['日期'])
-                    df = df.set_index('日期')
-                    all_data[code] = df
-            except Exception:
-                pass
+            success = False
+            for attempt in range(3):
+                try:
+                    df = ak.stock_zh_a_hist(
+                        symbol=code, period='daily',
+                        start_date=start_date.replace('-', ''),
+                        end_date=end_date.replace('-', ''),
+                        adjust='qfq'
+                    )
+                    if not df.empty:
+                        df['日期'] = pd.to_datetime(df['日期'])
+                        df = df.set_index('日期')
+                        all_data[code] = df
+                        success = True
+                        break
+                except Exception:
+                    time.sleep(2 * (attempt + 1))
+            if not success:
+                failed_codes.append(code)
             if (i + 1) % 50 == 0:
-                logger.info(f"  日线数据: {i+1}/{total}")
+                logger.info(f"  日线数据: {i+1}/{total} (成功{len(all_data)})")
+                time.sleep(5)
+            else:
                 time.sleep(1)
-            elif (i + 1) % 10 == 0:
-                time.sleep(0.3)
+        if failed_codes:
+            logger.warning(f"日线获取失败: {len(failed_codes)}只")
         logger.info(f"日线数据获取完成: {len(all_data)}/{total}")
         return all_data
     return load_or_fetch('daily_data', _fetch)
