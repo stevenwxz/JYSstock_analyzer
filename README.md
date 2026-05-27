@@ -1,20 +1,21 @@
 # 沪深300股票量化分析系统
 
-基于 Python 的沪深300成分股量化分析系统，每日盘后自动筛选强势股票并推送邮件报告。
+基于MA60趋势择时的沪深300量化选股系统。牛市进攻、熊市防守，追求低回撤高收益。
 
-## 功能
+## 策略逻辑
 
-- 沪深300全量成分股实时分析
-- 五维评分系统（技术面 + 估值 + 盈利 + 安全性 + 股息）
-- 自动生成 Markdown 分析报告
-- QQ邮箱 HTML 格式报告推送
-- 历史回测验证策略有效性
-- 定时任务自动运行（交易日16:00分析，16:30发邮件）
+```
+沪深300 > MA60 → 牛市 → 进攻模式（高动量 + 高成长）
+沪深300 < MA60 → 熊市 → 超防守模式（低波动 + 低PB + 高ROE + 小回撤）
+```
+
+- 止损: 单只 -5%
+- 持仓: 最多6只，7个交易日调仓
+- 回测(2024-2026): +91.91%收益，12.20%最大回撤，54.5%胜率
 
 ## 快速开始
 
 ```bash
-cd stock_analyzer
 pip install -r requirements.txt
 
 # 配置邮箱（可选）
@@ -32,38 +33,51 @@ python main.py --mode analysis
 | 手动分析 | `python main.py --mode analysis` | 立即执行一次分析 |
 | 守护进程 | `python main.py --mode daemon` | 定时自动分析+发邮件 |
 | 发送邮件 | `python main.py --mode email` | 发送最近一次分析报告 |
-| 回测 | `python run_backtest_optimized.py` | 历史数据回测 |
+| 回测 | `python run_backtest_optimized.py` | 历史数据回测验证 |
 
 ## 评分体系
 
+### 进攻模式（牛市）
+
+基础评分（技术面+估值+盈利+安全+股息）+ 动量加分（最高12分）+ 成长加分（5分）
+
+### 超防守模式（熊市）
+
 | 维度 | 权重 | 指标 |
 |------|------|------|
-| 技术面 | 30分 | 涨跌幅、20日动量、换手率 |
-| 估值 | 25分 | PE、PB、PR市赚率 |
-| 盈利能力 | 30分 | ROE、净利润增长率 |
-| 安全性 | 10分 | PB安全边际、股息率、换手率 |
-| 股息 | 5分 | 股息率（支持手动修正） |
+| 低波动 | 30分 | 20日收益率标准差 |
+| 低PB | 25分 | 市净率越低越好 |
+| 高ROE | 25分 | 净资产收益率 |
+| 小回撤 | 20分 | 20日最大回撤 |
+| 温和动量 | 5分 | 0~5%正动量加分 |
 
 ## 技术栈
 
-- **数据源**: akshare（开源金融数据接口）
+- **数据源**: 腾讯财经K线API + akshare财报数据
 - **分析**: pandas, numpy
 - **异步**: aiohttp（并发获取300只股票数据）
-- **通知**: SMTP 邮件
+- **通知**: SMTP 邮件（QQ邮箱）
 - **调度**: schedule 定时任务
 
 ## 项目结构
 
 ```
-stock_analyzer/          # 核心代码（git子模块）
-├── main.py             # 主入口
-├── config/             # 配置（筛选参数、股息修正）
+├── main.py                 # 主入口
+├── run_backtest_optimized.py  # 回测脚本
+├── config/
+│   ├── config.py           # 筛选参数（PE、止损、持仓数）
+│   └── backtest_config.py  # 回测参数
 ├── src/
-│   ├── data/           # 数据获取（腾讯财经API + akshare）
-│   ├── analysis/       # 评分筛选 + 回测引擎
-│   ├── notification/   # 邮件发送
-│   └── scheduler/      # 定时任务
-└── reports/            # 生成的分析报告
+│   ├── data/
+│   │   ├── async_data_fetcher.py      # 异步数据获取（动量+波动率+回撤）
+│   │   └── financial_report_fetcher.py # 财报数据（ROE、利润增长）
+│   ├── analysis/
+│   │   ├── stock_filter.py    # 三种评分模式（基础/进攻/超防守）
+│   │   └── market_analyzer.py # MA60趋势检测 + 模式切换
+│   ├── notification/          # 邮件发送
+│   └── scheduler/             # 定时任务
+├── reports/                   # 生成的分析报告
+└── plot_daily_curve.py        # 回测净值曲线可视化
 ```
 
 ## 许可证

@@ -93,7 +93,14 @@ def main():
 
             if result:
                 selected_stocks = result.get('selected_stocks', [])
-                print(f"\n分析完成！推荐 {len(selected_stocks)} 只股票:")
+                trend_info = result.get('market_trend', {})
+                market_mode = result.get('market_mode', 'unknown')
+                mode_label = '进攻模式(牛市)' if market_mode == 'offensive' else '防守模式(熊市)'
+
+                print(f"\n分析完成！当前市场: {mode_label}")
+                if trend_info:
+                    print(f"  沪深300: {trend_info.get('price', 0):.2f}, MA60: {trend_info.get('ma60', 0):.2f}")
+                print(f"推荐 {len(selected_stocks)} 只股票:")
                 print("-" * 50)
 
                 for stock in selected_stocks:

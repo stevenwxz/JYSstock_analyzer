@@ -18,8 +18,9 @@ STOCK_FILTER_CONFIG = {
     'min_turnover_rate': 1.0,  # 最小换手率：1.0%
     'momentum_days': 20,
     'min_price': 1.0,
-    'max_stocks': 10,  # 从5只增加到10只
-    'min_strength_score': 40   # 从50降低到40
+    'max_stocks': 6,           # 持仓6只
+    'min_strength_score': 35,  # 最低评分35
+    'stop_loss_pct': -0.05,    # 止损线-5%
 }
 
 # 数据源配置

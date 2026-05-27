@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import json
 import os
+import requests
+import time
 
 from src.data.data_fetcher import StockDataFetcher
 from src.data.async_data_fetcher import batch_get_stock_data_sync, get_market_overview_sync
@@ -25,6 +27,38 @@ class MarketAnalyzer:
         self.stock_filter = StockFilter()
         self.analysis_results = {}
         self.use_async = use_async
+
+    def detect_market_trend(self) -> Dict:
+        """检测沪深300趋势：价格是否站上MA60"""
+        try:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=120)).strftime('%Y-%m-%d')
+            url = f'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000300,day,{start_date},{end_date},100,qfq'
+            resp = requests.get(url, timeout=10)
+            data = resp.json()
+            klines = data.get('data', {}).get('sh000300', {}).get('day', [])
+            if not klines:
+                klines = data.get('data', {}).get('sh000300', {}).get('qfqday', [])
+            if not klines or len(klines) < 60:
+                logger.warning("沪深300K线数据不足60根，默认防守模式")
+                return {'mode': 'defensive', 'price': 0, 'ma60': 0, 'reason': '数据不足'}
+
+            closes = [float(k[2]) for k in klines]
+            current_price = closes[-1]
+            ma60 = np.mean(closes[-60:])
+            is_bull = current_price > ma60
+
+            mode = 'offensive' if is_bull else 'defensive'
+            logger.info(f"趋势检测: 沪深300={current_price:.2f}, MA60={ma60:.2f}, 模式={mode}")
+            return {
+                'mode': mode,
+                'price': current_price,
+                'ma60': round(ma60, 2),
+                'reason': f'沪深300({current_price:.2f}) {">" if is_bull else "<"} MA60({ma60:.2f})'
+            }
+        except Exception as e:
+            logger.error(f"趋势检测失败: {e}，默认防守模式")
+            return {'mode': 'defensive', 'price': 0, 'ma60': 0, 'reason': f'检测失败: {e}'}
 
     def _load_csi300_stocks(self) -> pd.DataFrame:
         """加载沪深300成分股列表 - 优先使用本地缓存"""
@@ -109,8 +143,16 @@ class MarketAnalyzer:
 
             logger.info(f"成功获取 {len(all_stock_data)} 只股票的数据")
 
-            # 4. 筛选股票
-            selected_stocks = self.stock_filter.select_top_stocks(all_stock_data)
+            # 4. 趋势检测 + 模式切换选股
+            trend_info = self.detect_market_trend()
+            market_mode = trend_info['mode']
+
+            if market_mode == 'offensive':
+                logger.info("当前为牛市模式（进攻），使用进攻评分选股")
+                selected_stocks = self.stock_filter.select_top_stocks_offensive(all_stock_data)
+            else:
+                logger.info("当前为熊市模式（防守），使用超防守评分选股")
+                selected_stocks = self.stock_filter.select_top_stocks_ultra_defensive(all_stock_data)
 
             # 5. 获取市场概况
             if self.use_async:
@@ -123,6 +165,8 @@ class MarketAnalyzer:
                 'analysis_date': datetime.now().strftime('%Y-%m-%d'),
                 'analysis_time': datetime.now().strftime('%H:%M:%S'),
                 'market_overview': market_overview,
+                'market_trend': trend_info,
+                'market_mode': market_mode,
                 'selected_stocks': selected_stocks,
                 'total_analyzed': len(all_stock_data),
                 'selection_criteria': STOCK_FILTER_CONFIG,
@@ -302,187 +346,106 @@ class MarketAnalyzer:
         """生成Markdown格式报告"""
         try:
             from datetime import datetime
-            
+
             analysis_date = analysis_result.get('analysis_date', datetime.now().strftime('%Y-%m-%d'))
             selected_stocks = analysis_result.get('selected_stocks', [])
             total_analyzed = analysis_result.get('total_analyzed', 300)
             config = analysis_result.get('selection_criteria', {})
             market_overview = analysis_result.get('market_overview', {})
-            
-            # 转换日期格式
+            trend_info = analysis_result.get('market_trend', {})
+            market_mode = analysis_result.get('market_mode', 'unknown')
+
             date_obj = datetime.strptime(analysis_date, '%Y-%m-%d')
             date_cn = date_obj.strftime('%Y年%m月%d日')
-            
-            # 生成Markdown内容
-            md_content = f"""# 📊 {date_cn}沪深300成分股分析结果
 
-## 🔍 **分析概况**
+            is_bull = market_mode == 'offensive'
+            mode_label = '进攻' if is_bull else '防守'
+            trend_price = trend_info.get('price', 0)
+            trend_ma60 = trend_info.get('ma60', 0)
+            diff_pct = (trend_price / trend_ma60 - 1) * 100 if trend_ma60 > 0 else 0
+            sentiment = analysis_result.get('summary', {}).get('market_sentiment', '未知')
+            rising_ratio = market_overview.get('rising_ratio', 0)
+            avg_chg = market_overview.get('avg_change_pct', 0)
 
-### 📅 **基本信息**
-- **分析日期**: {analysis_date}
-- **分析时间**: {analysis_result.get('analysis_time', '--')}
-- **数据源**: 实时交易数据
-- **股票池**: 沪深300成分股
-- **目标股票数**: {total_analyzed}只
-- **筛选条件**: PE ≤ {config.get('max_pe_ratio', 30)}, 换手率 ≥ {config.get('min_turnover_rate', 1.0)}%
+            md_content = f"# {date_cn} 量化选股\n\n"
+            md_content += f"**{mode_label}模式** | "
+            md_content += f"沪深300 `{trend_price:.2f}` {'>' if is_bull else '<'} MA60 `{trend_ma60:.2f}` | "
+            md_content += f"偏离 `{diff_pct:+.1f}%`\n\n"
+            md_content += f"市场: {sentiment} | "
+            md_content += f"涨跌比 {market_overview.get('rising_stocks', 0)}/{market_overview.get('falling_stocks', 0)} | "
+            md_content += f"均幅 {avg_chg:+.2f}%\n\n"
+            md_content += "---\n\n"
 
-## 🏆 **Top {len(selected_stocks)} 精选股票**
+            # 选股逻辑说明
+            if is_bull:
+                md_content += "**选股逻辑（进攻）**: 基础分(技术面+估值+盈利+安全+股息) + 动量加分(>15%:+12, >10%:+8, >5%:+4) + 高成长加分(>30%:+5)\n\n"
+            else:
+                md_content += "**选股逻辑（防守）**: 低波动(30) + 低PB(25) + 高ROE(25) + 小回撤(20) + 温和动量(5) = 满分105\n\n"
 
-"""
-            
-            # 添加每只股票的详细信息
-            for stock in selected_stocks:
-                trend = "↗" if stock.get('change_pct', 0) > 0 else "↘" if stock.get('change_pct', 0) < 0 else "→"
-                md_content += f"""### #{stock.get('rank', 0)} {stock['name']} ({stock['code']}) [{trend}]
-- **价格**: ¥{stock.get('price', 0):.2f}
-- **涨跌幅**: {stock.get('change_pct', 0):+.2f}%
-- **PE**: {stock.get('pe_ratio', 0):.2f}倍
-- **强势分数**: {stock.get('strength_score', 0):.0f}分
-"""
-                
-                # 添加分项得分
-                score_detail = stock.get('strength_score_detail', {})
-                if score_detail:
-                    breakdown = score_detail.get('breakdown', {})
-                    md_content += f"""- **分项得分**:
-  - 技术面: {breakdown.get('technical', 0)}分
-  - 估值: {breakdown.get('valuation', 0)}分
-  - 盈利能力: {breakdown.get('profitability', 0)}分
-  - 安全性: {breakdown.get('safety', 0)}分
-  - 股息: {breakdown.get('dividend', 0)}分
-- **评级**: {score_detail.get('grade', '')}
-"""
-                
-                md_content += f"""- **选择理由**: {stock.get('selection_reason', '符合筛选条件')}
+            if is_bull:
+                md_content += self._build_offensive_table(selected_stocks)
+            else:
+                md_content += self._build_defensive_table(selected_stocks)
 
-"""
-            
-            # 添加候选股票表格
-            if selected_stocks:
-                md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
+            md_content += "\n---\n\n"
+            md_content += f"PE≤{config.get('max_pe_ratio', 30)} | "
+            md_content += f"持仓≤{config.get('max_stocks', 6)}只 | "
+            md_content += f"止损{config.get('stop_loss_pct', -0.05)*100:.0f}% | "
+            md_content += f"调仓7日 | "
+            md_content += f"分析{total_analyzed}只\n\n"
+            md_content += f"<sub>{datetime.now().strftime('%H:%M:%S')} · v4.0 · 仅供参考，不构成投资建议</sub>\n"
 
-> ⚠️ **免责声明**: 本报告仅供参考，不构成投资建议。股市有风险，投资需谨慎。
-
-| 排名 | 股票名称 | 代码 | 股价 | PB | PE | PR | ROE | 20日动量 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 |
-|------|----------|------|------|------|------|------|-------|---------|-----|------|--------|------|------|------|------|
-"""
-
-                for stock in selected_stocks:
-                    roe_display = f"{stock.get('roe', 0):.1f}%" if stock.get('roe') else "-"
-                    grade = stock.get('strength_grade', '-')
-                    
-                    # 获取分项得分
-                    score_detail = stock.get('strength_score_detail', {})
-                    tech_score = 0
-                    val_score = 0
-                    prof_score = 0
-                    safe_score = 0
-                    div_score = 0
-                    if score_detail:
-                        breakdown = score_detail.get('breakdown', {})
-                        tech_score = breakdown.get('technical', 0)
-                        val_score = breakdown.get('valuation', 0)
-                        prof_score = breakdown.get('profitability', 0)
-                        safe_score = breakdown.get('safety', 0)
-                        div_score = breakdown.get('dividend', 0)
-                    
-                    # 获取股价和计算总市值（如果可能获取总股本数据）
-                    price = stock.get('price', 0)
-                    # 尝试从股票数据中获取总市值信息，如果不存在则尝试计算
-                    market_cap = stock.get('market_cap', None)  # 单位是万元
-                    if market_cap:
-                        market_cap_display = f"{market_cap/10000:.2f}"  # 转换为亿元并格式化
-                    else:
-                        # 尝试使用总股本计算总市值
-                        total_shares = stock.get('total_shares', None)  # 单位是万股
-                        if total_shares and price > 0:
-                            market_cap = price * total_shares * 10000  # 总市值 = 股价 * 总股本
-                            market_cap_display = f"{market_cap/100000000:.2f}"  # 转换为亿元并格式化
-                        else:
-                            market_cap_display = "-"  # 无法获取总市值，显示为"-"
-                    
-                    # 计算PR（市赚率）
-                    pe_ratio = stock.get('pe_ratio', 0)
-                    roe = stock.get('roe', 0)
-                    roe_decimal = roe / 100 if roe > 0 else 0  # ROE是百分比形式，需要转换为小数
-                    pr_display = "-"
-                    if pe_ratio > 0 and roe_decimal > 0:
-                        pr = pe_ratio / (100 * roe_decimal)
-                        pr_display = f"{pr:.2f}"
-                    
-                    momentum_20d = stock.get('momentum_20d', 0)
-                    
-                    md_content += f"|  {stock.get('rank', 0)} | {stock.get('name', '-')} | {stock.get('code', '-')} | {price:.2f} | {stock.get('pb_ratio', 0):.2f} | {stock.get('pe_ratio', 0):.2f} | {pr_display} | {roe_display} | {momentum_20d:+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} |\n"
-            
-            # 添加筛选统计
-            md_content += f"""
-## 📊 **沪深300筛选统计**
-
-### 🔍 **筛选结果**
-- **沪深300总数**: {total_analyzed}只
-- **筛选通过**: {len(selected_stocks)}只
-- **筛选通过率**: {len(selected_stocks)/total_analyzed*100 if total_analyzed > 0 else 0:.2f}%
-
-### 📊 **筛选标准**
-- **PE筛选**: PE ≤ {config.get('max_pe_ratio', 30)}
-- **换手率筛选**: 换手率 ≥ {config.get('min_turnover_rate', 1.0)}%
-- **强势分数**: ≥ {config.get('min_strength_score', 50)}
-- **数量限制**: 最多推荐{config.get('max_stocks', 3)}只股票
-
-## 📊 **市场统计**
-
-### 🎯 **整体表现**
-- **全市场总股票**: {market_overview.get('total_stocks', 0):,}只
-- **上涨股票**: {market_overview.get('rising_stocks', 0):,}只 ({market_overview.get('rising_ratio', 0):.2f}%)
-- **下跌股票**: {market_overview.get('falling_stocks', 0):,}只
-- **全市场平均涨跌幅**: {market_overview.get('avg_change_pct', 0):.2f}%
-- **市场情绪**: {analysis_result.get('summary', {}).get('market_sentiment', '未知')}
-
-## 🎯 **投资分析**
-
-### 📈 **投资价值**
-- **市场代表性**: 基于沪深300成分股,代表A股核心优质资产
-- **估值安全**: 严格PE筛选避免高风险标的  
-- **流动性保证**: 成交额要求确保充足的交易流动性
-- **技术筛选**: 基于20日动量、强势分数等多维度技术指标
-
-### ⚠️ **风险提示**
-1. **市场风险**: 股市有风险,投资需谨慎
-2. **估值风险**: PE为历史数据,需关注最新财报
-3. **流动性风险**: 市场波动可能影响交易流动性
-4. **投资建议**: 本报告仅供参考,不构成投资建议
-
-## 💡 **技术说明**
-
-### 🔧 **策略特点**
-- **多维度筛选**: PE估值、成交额、动量、强势评分综合评估
-- **20日动量**: 基于20日价格动量捕捉趋势
-- **成交额过滤**: 确保足够的市场流动性
-- **智能评分**: 综合涨跌幅、动量、流动性等指标
-
-### 📊 **数据来源**
-- **股票池**: 沪深300成分股
-- **数据频率**: 实时交易数据
-- **更新时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
----
-
-**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-**分析版本**: v3.0 (量化策略优化版)
-**数据范围**: 沪深300成分股分析 ✓
-"""
-            
-            # 确保reports目录存在
             os.makedirs('./reports', exist_ok=True)
-
-            # 保存文件
             output_file = f"./reports/{date_cn}沪深300分析结果.md"
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(md_content)
 
             logger.info(f"Markdown报告已生成: {output_file}")
             return True
-            
+
         except Exception as e:
             logger.error(f"生成Markdown报告失败: {e}")
             return False
+
+    def _build_offensive_table(self, stocks: List[Dict]) -> str:
+        """进攻模式股票表格（含分项得分）"""
+        table = "| 排名 | 股票 | 价格 | PE | ROE | 动量 | 增长 | 技术 | 估值 | 盈利 | 安全 | 加分 | 总分 |\n"
+        table += "|:----:|:-----|-----:|----:|----:|-----:|-----:|:----:|:----:|:----:|:----:|:----:|-----:|\n"
+        for s in stocks:
+            roe_d = f"{s.get('roe', 0):.1f}%" if s.get('roe') else "-"
+            growth_d = f"{s.get('profit_growth', 0):+.0f}%" if s.get('profit_growth') else "-"
+            name = f"{s.get('name', '-')} {s.get('code', '-')}"
+            detail = s.get('strength_score_detail', {})
+            breakdown = detail.get('breakdown', {})
+            tech = breakdown.get('technical', 0)
+            val = breakdown.get('valuation', 0)
+            prof = breakdown.get('profitability', 0)
+            safe = breakdown.get('safety', 0)
+            bonus = detail.get('bonus', 0)
+            table += f"| {s.get('rank', 0)} | {name} "
+            table += f"| {s.get('price', 0):.2f} | {s.get('pe_ratio', 0):.1f} | {roe_d} "
+            table += f"| {s.get('momentum_20d', 0):+.1f}% | {growth_d} "
+            table += f"| {tech} | {val} | {prof} | {safe} | {bonus} "
+            table += f"| **{s.get('strength_score', 0):.0f}** |\n"
+        return table
+
+    def _build_defensive_table(self, stocks: List[Dict]) -> str:
+        """防守模式股票表格（含分项得分）"""
+        table = "| 排名 | 股票 | 价格 | PB | ROE | 波动 | 回撤 | 低波动 | 低PB | 高ROE | 小回撤 | 动量 | 总分 |\n"
+        table += "|:----:|:-----|-----:|----:|----:|-----:|-----:|:------:|:----:|:-----:|:------:|:----:|-----:|\n"
+        for s in stocks:
+            roe_d = f"{s.get('roe', 0):.1f}%" if s.get('roe') else "-"
+            name = f"{s.get('name', '-')} {s.get('code', '-')}"
+            detail = s.get('strength_score_detail', {})
+            breakdown = detail.get('breakdown', {})
+            lv = breakdown.get('low_volatility', 0)
+            lpb = breakdown.get('low_pb', 0)
+            hroe = breakdown.get('high_roe', 0)
+            sdd = breakdown.get('small_drawdown', 0)
+            mb = breakdown.get('momentum_bonus', 0)
+            table += f"| {s.get('rank', 0)} | {name} "
+            table += f"| {s.get('price', 0):.2f} | {s.get('pb_ratio', 0):.2f} | {roe_d} "
+            table += f"| {s.get('volatility_20d', 0):.2f}% | {s.get('max_drawdown_20d', 0):.1f}% "
+            table += f"| {lv} | {lpb} | {hroe} | {sdd} | {mb} "
+            table += f"| **{s.get('strength_score', 0):.0f}** |\n"
+        return table

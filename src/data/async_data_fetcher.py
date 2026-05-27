@@ -549,15 +549,23 @@ class AsyncStockDataFetcher:
                 ]
                 historical_results = await asyncio.gather(*historical_tasks)
 
-                # 计算动量
+                # 计算动量、波动率、最大回撤
                 momentum_success = 0
                 for stock, hist_data in zip(valid_stocks, historical_results):
                     if not hist_data.empty and len(hist_data) >= 20:
                         momentum = self.calculate_momentum(hist_data, days=20)
                         stock['momentum_20d'] = momentum
+                        closes = hist_data['close'].tail(20).values
+                        daily_returns = np.diff(closes) / closes[:-1] * 100
+                        stock['volatility_20d'] = float(np.std(daily_returns))
+                        cummax = np.maximum.accumulate(closes)
+                        drawdowns = (closes - cummax) / cummax * 100
+                        stock['max_drawdown_20d'] = float(np.min(drawdowns))
                         momentum_success += 1
                     else:
                         stock['momentum_20d'] = 0
+                        stock['volatility_20d'] = 5.0
+                        stock['max_drawdown_20d'] = -10.0
 
                 logger.info(f"动量计算成功: {momentum_success}/{len(valid_stocks)}")
             else:

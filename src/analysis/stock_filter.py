@@ -296,6 +296,130 @@ class StockFilter:
             logger.error(f"股票选择失败: {e}")
             return []
 
+    def calculate_offensive_score(self, stock_data: Dict) -> Dict:
+        """进攻模式评分：取消过热惩罚 + 高动量加分"""
+        base_result = self.calculate_strength_score(stock_data)
+        base_score = base_result['total']
+
+        momentum = stock_data.get('momentum_20d', 0)
+        bonus = 0
+        if momentum > 15:
+            bonus += 12
+        elif momentum > 10:
+            bonus += 8
+        elif momentum > 5:
+            bonus += 4
+
+        growth = stock_data.get('profit_growth')
+        if growth and growth > 30:
+            bonus += 5
+
+        total = base_score + bonus
+        grade = self._get_grade(total)
+        return {'total': total, 'breakdown': base_result['breakdown'], 'grade': grade, 'bonus': bonus}
+
+    def calculate_ultra_defensive_score(self, stock_data: Dict) -> Dict:
+        """超防守评分：极低波动+低PB+高ROE+小回撤"""
+        score = 0
+        breakdown = {'low_volatility': 0, 'low_pb': 0, 'high_roe': 0, 'small_drawdown': 0, 'momentum_bonus': 0}
+
+        volatility = stock_data.get('volatility_20d', 0)
+        pb = stock_data.get('pb_ratio')
+        roe = stock_data.get('roe')
+        max_dd = stock_data.get('max_drawdown_20d', 0)
+        momentum = stock_data.get('momentum_20d', 0)
+
+        if volatility < 1.0:
+            breakdown['low_volatility'] = 30
+        elif volatility < 1.5:
+            breakdown['low_volatility'] = 25
+        elif volatility < 2.0:
+            breakdown['low_volatility'] = 18
+        elif volatility < 2.5:
+            breakdown['low_volatility'] = 10
+
+        if pb and 0 < pb < 0.8:
+            breakdown['low_pb'] = 25
+        elif pb and 0.8 <= pb < 1.2:
+            breakdown['low_pb'] = 20
+        elif pb and 1.2 <= pb < 2.0:
+            breakdown['low_pb'] = 12
+        elif pb and 2.0 <= pb < 3.0:
+            breakdown['low_pb'] = 5
+
+        if roe and roe > 15:
+            breakdown['high_roe'] = 25
+        elif roe and roe > 10:
+            breakdown['high_roe'] = 18
+        elif roe and roe > 7:
+            breakdown['high_roe'] = 10
+
+        if max_dd > -3:
+            breakdown['small_drawdown'] = 20
+        elif max_dd > -5:
+            breakdown['small_drawdown'] = 14
+        elif max_dd > -8:
+            breakdown['small_drawdown'] = 7
+
+        if 0 < momentum <= 5:
+            breakdown['momentum_bonus'] = 5
+
+        score = sum(breakdown.values())
+        grade = self._get_grade(score)
+        return {'total': score, 'breakdown': breakdown, 'grade': grade}
+
+    def select_top_stocks_offensive(self, stocks_data: List[Dict]) -> List[Dict]:
+        """进攻模式选股：PE<30 + 进攻评分 + 取前N"""
+        unique_stocks = {}
+        for stock in stocks_data:
+            code = stock.get('code')
+            if code and code not in unique_stocks:
+                unique_stocks[code] = stock
+        stocks_data = list(unique_stocks.values())
+
+        pe_filtered = self.filter_by_pe_ratio(stocks_data)
+        additional_filtered = self.apply_additional_filters(pe_filtered)
+
+        for stock in additional_filtered:
+            score_result = self.calculate_offensive_score(stock)
+            stock['strength_score_detail'] = score_result
+            stock['strength_score'] = score_result['total']
+            stock['strength_grade'] = score_result['grade']
+
+        sorted_stocks = sorted(additional_filtered, key=lambda x: x['strength_score'], reverse=True)
+        final = sorted_stocks[:self.config['max_stocks']]
+        for i, stock in enumerate(final):
+            stock['rank'] = i + 1
+            stock['selection_reason'] = self._generate_selection_reason(stock)
+        logger.info(f"[进攻模式] 选出 {len(final)} 只股票")
+        return final
+
+    def select_top_stocks_ultra_defensive(self, stocks_data: List[Dict]) -> List[Dict]:
+        """超防守模式选股：PE<30 + 超防守评分 + 取前N"""
+        unique_stocks = {}
+        for stock in stocks_data:
+            code = stock.get('code')
+            if code and code not in unique_stocks:
+                unique_stocks[code] = stock
+        stocks_data = list(unique_stocks.values())
+
+        pe_filtered = self.filter_by_pe_ratio(stocks_data)
+        additional_filtered = self.apply_additional_filters(pe_filtered)
+
+        for stock in additional_filtered:
+            score_result = self.calculate_ultra_defensive_score(stock)
+            stock['strength_score_detail'] = score_result
+            stock['strength_score'] = score_result['total']
+            stock['strength_grade'] = score_result['grade']
+
+        sorted_stocks = sorted(additional_filtered, key=lambda x: x['strength_score'], reverse=True)
+        final = sorted_stocks[:self.config['max_stocks']]
+        for i, stock in enumerate(final):
+            stock['rank'] = i + 1
+            stock['selection_reason'] = self._generate_selection_reason(stock)
+        logger.info(f"[超防守模式] 选出 {len(final)} 只股票")
+        return final
+
     def _generate_selection_reason(self, stock: Dict) -> str:
         """生成选择理由 - 包含基本面指标"""
         reasons = []
