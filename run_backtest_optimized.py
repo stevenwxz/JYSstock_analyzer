@@ -28,9 +28,12 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(__file__))
 from config.backtest_config import BACKTEST_PARAMS
+from src.analysis.stock_filter import StockFilter
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+_stock_filter = StockFilter()
 
 CACHE_DIR = './cache/backtest'
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -422,100 +425,14 @@ def select_stocks_optimized(all_stocks, max_stocks=6):
     return filtered[:max_stocks]
 
 
-def score_stock_offensive(s):
-    """进攻模式评分：取消过热惩罚 + 高动量加分"""
-    orig_m5d = s.get('momentum_5d', 0)
-    s['momentum_5d'] = 0
-    base_score = score_stock_optimized(s)
-    s['momentum_5d'] = orig_m5d
-
-    momentum = s.get('momentum_20d', 0)
-    bonus = 0
-    if momentum > 15:
-        bonus += 12
-    elif momentum > 10:
-        bonus += 8
-    elif momentum > 5:
-        bonus += 4
-
-    growth = s.get('profit_growth')
-    if growth and growth > 30:
-        bonus += 5
-
-    return base_score + bonus
-
-
 def select_stocks_offensive(all_stocks, max_stocks=6):
-    """进攻模式选股：PE<30内优选高动量"""
-    seen = set()
-    unique = [s for s in all_stocks if s['code'] not in seen and not seen.add(s['code'])]
-    filtered = [s for s in unique if s.get('pe_ratio') and 0 < s['pe_ratio'] <= 30]
-    filtered = [s for s in filtered if s.get('change_pct', 0) > -9.8]
-    for s in filtered:
-        s['opt_score'] = score_stock_offensive(s)
-    filtered = [s for s in filtered if s['opt_score'] >= 35]
-    filtered.sort(key=lambda x: x['opt_score'], reverse=True)
-    return filtered[:max_stocks]
-
-
-def score_stock_ultra_defensive(s):
-    """超防守评分：极低波动+低PB+高ROE"""
-    score = 0
-    volatility = s.get('volatility_20d', 0)
-    pb = s.get('pb_ratio')
-    roe = s.get('roe')
-    max_dd = s.get('max_drawdown_20d', 0)
-    momentum = s.get('momentum_20d', 0)
-
-    if volatility < 1.0:
-        score += 30
-    elif volatility < 1.5:
-        score += 25
-    elif volatility < 2.0:
-        score += 18
-    elif volatility < 2.5:
-        score += 10
-
-    if pb and 0 < pb < 0.8:
-        score += 25
-    elif pb and 0.8 <= pb < 1.2:
-        score += 20
-    elif pb and 1.2 <= pb < 2.0:
-        score += 12
-    elif pb and 2.0 <= pb < 3.0:
-        score += 5
-
-    if roe and roe > 15:
-        score += 25
-    elif roe and roe > 10:
-        score += 18
-    elif roe and roe > 7:
-        score += 10
-
-    if max_dd > -3:
-        score += 20
-    elif max_dd > -5:
-        score += 14
-    elif max_dd > -8:
-        score += 7
-
-    if 0 < momentum <= 5:
-        score += 5
-
-    return score
+    """进攻模式选股 - 调用stock_filter统一逻辑"""
+    return _stock_filter.select_top_stocks_offensive(all_stocks)
 
 
 def select_stocks_ultra_defensive(all_stocks, max_stocks=6):
-    """超防守选股：低波动低PB高ROE"""
-    seen = set()
-    unique = [s for s in all_stocks if s['code'] not in seen and not seen.add(s['code'])]
-    filtered = [s for s in unique if s.get('pe_ratio') and 0 < s['pe_ratio'] <= 30]
-    filtered = [s for s in filtered if s.get('change_pct', 0) > -9.8]
-    for s in filtered:
-        s['opt_score'] = score_stock_ultra_defensive(s)
-    filtered = [s for s in filtered if s['opt_score'] >= 40]
-    filtered.sort(key=lambda x: x['opt_score'], reverse=True)
-    return filtered[:max_stocks]
+    """超防守选股 - 调用stock_filter统一逻辑"""
+    return _stock_filter.select_top_stocks_ultra_defensive(all_stocks)
 
 
 def run_backtest():
@@ -558,84 +475,113 @@ def run_backtest():
     trading_days = all_trading_days[mask].tolist()
     logger.info(f"交易日数: {len(trading_days)}")
 
-    # 4. 回测循环（低回撤策略：MA60攻防切换 + -5%止损）
+    # 4. 回测循环（逐日模拟：MA60攻防切换 + -5%止损 + 止损后剩余仓位继续）
     stop_loss_pct = -0.05
+    cost = cost_buy + cost_sell
     results = []
+    daily_navs = []  # 逐日净值用于绘图
+
+    nav_base = 1.0
+    holdings = []  # [(code, buy_price, weight)]
+    stopped = {}   # code -> 止损锁定的亏损
+
     i = 0
+    while i < len(trading_days):
+        today = trading_days[i]
 
-    while i + hold_days < len(trading_days):
-        buy_date = trading_days[i]
-        sell_date = trading_days[i + hold_days]
+        if i % hold_days == 0:
+            # 调仓日：先结算旧持仓
+            if i > 0 and holdings:
+                port_return = 0
+                for code, buy_price, weight in holdings:
+                    if code in daily_data and today in daily_data[code].index:
+                        cur_price = float(daily_data[code].loc[today]['收盘'])
+                        ret = cur_price / buy_price - 1
+                        if ret < stop_loss_pct:
+                            port_return += weight * stop_loss_pct
+                        else:
+                            port_return += weight * ret
+                cash_return = sum(stopped.values())
+                period_ret = port_return + cash_return
+                nav_base = nav_base * (1 + period_ret) * (1 - cost)
 
-        # MA60趋势判断
-        bull_mode = False
-        if buy_date in benchmark.index:
-            loc = benchmark.index.get_loc(buy_date)
-            if loc >= 60:
-                ma60 = benchmark.iloc[loc-60:loc]['close'].mean()
-                cur = float(benchmark.loc[buy_date]['close'])
-                bull_mode = cur > ma60
+                # 记录本期结果
+                buy_date_str = trading_days[i - hold_days].strftime('%Y-%m-%d')
+                sell_date_str = today.strftime('%Y-%m-%d')
+                bench_ret = 0
+                bd = trading_days[i - hold_days]
+                if bd in benchmark.index and today in benchmark.index:
+                    bench_ret = (benchmark.loc[today]['close'] / benchmark.loc[bd]['close'] - 1) * 100
+                strat_ret_pct = period_ret * 100
+                results.append({
+                    'buy_date': buy_date_str,
+                    'sell_date': sell_date_str,
+                    'strategy_return': strat_ret_pct,
+                    'benchmark_return': bench_ret,
+                    'excess_return': strat_ret_pct - bench_ret,
+                    'num_stocks': len(holdings) + len(stopped),
+                    'win_count': sum(1 for c, bp, w in holdings
+                                     if c in daily_data and today in daily_data[c].index
+                                     and float(daily_data[c].loc[today]['收盘']) / bp - 1 > 0),
+                })
 
-        # 构建所有股票数据
-        all_stocks = []
-        for code in stock_codes:
-            sd = build_stock_data(code, daily_data, buy_date, fin_data)
-            if sd:
-                all_stocks.append(sd)
+            # MA60趋势判断
+            bull_mode = False
+            if today in benchmark.index:
+                loc = benchmark.index.get_loc(today)
+                if loc >= 60:
+                    ma60 = benchmark.iloc[loc-60:loc]['close'].mean()
+                    cur = float(benchmark.loc[today]['close'])
+                    bull_mode = cur > ma60
 
-        # 攻防切换选股
-        if bull_mode:
-            selected = select_stocks_offensive(all_stocks)
-            mode_str = '进攻'
+            # 构建股票数据并选股
+            all_stocks = []
+            for code in stock_codes:
+                sd = build_stock_data(code, daily_data, today, fin_data)
+                if sd:
+                    all_stocks.append(sd)
+
+            if bull_mode:
+                selected = select_stocks_offensive(all_stocks)
+            else:
+                selected = select_stocks_ultra_defensive(all_stocks)
+
+            # 建仓
+            holdings = []
+            stopped = {}
+            if selected:
+                w = 1.0 / len(selected)
+                for s in selected:
+                    holdings.append((s['code'], s['price'], w))
+
+            daily_navs.append(nav_base)
         else:
-            selected = select_stocks_ultra_defensive(all_stocks)
-            mode_str = '防守'
+            # 非调仓日：逐日盯盘止损，剩余仓位继续
+            if not holdings:
+                daily_navs.append(nav_base)
+            else:
+                port_return = 0
+                new_holdings = []
+                for code, buy_price, weight in holdings:
+                    if code in daily_data and today in daily_data[code].index:
+                        cur_price = float(daily_data[code].loc[today]['收盘'])
+                        ret = cur_price / buy_price - 1
+                        if ret < stop_loss_pct:
+                            stopped[code] = weight * (stop_loss_pct - cost)
+                        else:
+                            port_return += weight * ret
+                            new_holdings.append((code, buy_price, weight))
+                    else:
+                        new_holdings.append((code, buy_price, weight))
+                holdings = new_holdings
+                cash_return = sum(stopped.values())
+                daily_navs.append(nav_base * (1 + port_return + cash_return))
 
-        # 计算收益（逐日检查止损）
-        period_returns = []
-        for stock in selected:
-            code = stock['code']
-            if code not in daily_data:
-                continue
-            buy_price = stock['price']
-            sold = False
-            for d in range(1, hold_days + 1):
-                if i + d >= len(trading_days):
-                    break
-                check_date = trading_days[i + d]
-                if check_date not in daily_data[code].index:
-                    continue
-                current_price = float(daily_data[code].loc[check_date]['收盘'])
-                if (current_price / buy_price - 1) < stop_loss_pct:
-                    net_return = (current_price / buy_price - 1) - cost_buy - cost_sell
-                    period_returns.append(net_return * 100)
-                    sold = True
-                    break
-            if not sold and sell_date in daily_data[code].index:
-                sell_price = float(daily_data[code].loc[sell_date]['收盘'])
-                net_return = (sell_price / buy_price - 1) - cost_buy - cost_sell
-                period_returns.append(net_return * 100)
-
-        # 基准收益
-        bench_ret = 0
-        if buy_date in benchmark.index and sell_date in benchmark.index:
-            bench_ret = (benchmark.loc[sell_date]['close'] / benchmark.loc[buy_date]['close'] - 1) * 100
-
-        avg_ret = np.mean(period_returns) if period_returns else 0
-        results.append({
-            'buy_date': buy_date.strftime('%Y-%m-%d'),
-            'sell_date': sell_date.strftime('%Y-%m-%d'),
-            'strategy_return': avg_ret,
-            'benchmark_return': bench_ret,
-            'excess_return': avg_ret - bench_ret,
-            'num_stocks': len(period_returns),
-            'win_count': sum(1 for r in period_returns if r > 0),
-        })
-
-        i += hold_days
+        i += 1
 
     # 5. 输出结果
     print_results(results)
+    plot_backtest_results(results, daily_navs, trading_days, benchmark)
 
 
 # === PLACEHOLDER_PRINT ===
@@ -691,6 +637,85 @@ def print_results(results):
         print(f"{r['buy_date']:<12} {r['sell_date']:<12} "
               f"{r['strategy_return']:>+6.2f}% {r['benchmark_return']:>+6.2f}% "
               f"{r['excess_return']:>+6.2f}%")
+
+
+def plot_backtest_results(results, daily_navs=None, trading_days=None, benchmark=None):
+    """绘制回测净值曲线"""
+    if not results:
+        return
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.dates import DateFormatter, MonthLocator
+
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
+    plt.rcParams['axes.unicode_minus'] = False
+
+    # 使用逐日净值数据（更精确）
+    if daily_navs and trading_days and benchmark is not None:
+        dates = [d.to_pydatetime() if hasattr(d, 'to_pydatetime') else d for d in trading_days]
+        strat_curve = [(v - 1) * 100 for v in daily_navs]
+
+        # 基准逐日净值
+        base_price = float(benchmark.loc[trading_days[0]]['close']) if trading_days[0] in benchmark.index else 1
+        bench_curve = []
+        for d in trading_days:
+            if d in benchmark.index:
+                bench_curve.append((float(benchmark.loc[d]['close']) / base_price - 1) * 100)
+            else:
+                bench_curve.append(bench_curve[-1] if bench_curve else 0)
+
+        # 最大回撤
+        peak = daily_navs[0]
+        max_dd = 0
+        for v in daily_navs:
+            peak = max(peak, v)
+            max_dd = max(max_dd, (peak - v) / peak)
+    else:
+        # 降级：从期间结果计算
+        dates = [datetime.strptime(r['sell_date'], '%Y-%m-%d') for r in results]
+        cum_s, cum_b, max_s, max_dd = 1.0, 1.0, 1.0, 0
+        strat_curve, bench_curve = [], []
+        for r in results:
+            cum_s *= (1 + r['strategy_return'] / 100)
+            cum_b *= (1 + r['benchmark_return'] / 100)
+            max_s = max(max_s, cum_s)
+            max_dd = max(max_dd, (max_s - cum_s) / max_s)
+            strat_curve.append((cum_s - 1) * 100)
+            bench_curve.append((cum_b - 1) * 100)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+
+    ax.plot(dates, strat_curve, color='#E63946', linewidth=2.2,
+            label=f'策略 {strat_curve[-1]:+.1f}% (回撤{max_dd*100:.1f}%)')
+    ax.plot(dates, bench_curve, color='#6C757D', linewidth=1.8, linestyle='--',
+            label=f'沪深300 {bench_curve[-1]:+.1f}%')
+
+    ax.fill_between(dates, bench_curve, strat_curve,
+                    where=[s > b for s, b in zip(strat_curve, bench_curve)],
+                    alpha=0.15, color='#E63946', interpolate=True)
+    ax.fill_between(dates, bench_curve, strat_curve,
+                    where=[s <= b for s, b in zip(strat_curve, bench_curve)],
+                    alpha=0.15, color='#6C757D', interpolate=True)
+
+    ax.axhline(y=0, color='black', linewidth=0.5, alpha=0.3)
+    ax.set_xlabel('日期', fontsize=11)
+    ax.set_ylabel('累计收益率 (%)', fontsize=11)
+    ax.set_title(f'MA60趋势择时回测（{results[0]["buy_date"]} ~ {results[-1]["sell_date"]}）',
+                 fontsize=14, fontweight='bold')
+    ax.legend(loc='upper left', fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='-')
+    ax.xaxis.set_major_locator(MonthLocator())
+    ax.xaxis.set_major_formatter(DateFormatter('%Y-%m'))
+    fig.autofmt_xdate(rotation=30)
+
+    plt.tight_layout()
+    os.makedirs('./reports/charts', exist_ok=True)
+    out_path = './reports/charts/backtest_curve.png'
+    plt.savefig(out_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"\n净值曲线已保存: {out_path}")
 
 
 if __name__ == '__main__':

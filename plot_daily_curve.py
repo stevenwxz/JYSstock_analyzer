@@ -16,7 +16,8 @@ from datetime import datetime, timedelta
 from run_backtest_optimized import (
     build_stock_data, fetch_all_daily_data,
     fetch_financial_data, fetch_benchmark,
-    select_stocks_optimized
+    select_stocks_optimized,
+    select_stocks_offensive, select_stocks_ultra_defensive
 )
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
@@ -230,14 +231,14 @@ def _select_ultra_defensive(all_stocks):
 
 
 def simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
-                          hold_days, benchmark):
+                          hold_days, benchmark, max_stocks=6, stop_loss=-0.05):
     """低回撤策略v3：牛市进攻满仓 + 熊市超防守满仓（不降仓位，靠选股抗跌）"""
     nav_list = []
     nav_base = 1.0
     holdings = []
     stopped = {}
     cost = 0.001 + 0.0015
-    cur_stop = -0.05
+    cur_stop = stop_loss
 
     i = 0
     while i < len(trading_days):
@@ -274,9 +275,9 @@ def simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
                     all_stocks.append(sd)
 
             if bull_mode:
-                selected = _select_offensive(all_stocks)
+                selected = select_stocks_offensive(all_stocks)[:max_stocks]
             else:
-                selected = _select_ultra_defensive(all_stocks)
+                selected = select_stocks_ultra_defensive(all_stocks)[:max_stocks]
 
             holdings = []
             stopped = {}
@@ -388,18 +389,14 @@ def simulate_trend_timing(daily_data, fin_data, stock_codes, trading_days,
     return nav_list
 
 
-# === 运行模拟 ===
-print("模拟策略1: 防守止损...")
-nav1 = simulate_daily(daily_data, fin_data, stock_codes, trading_days,
-                      hold_days, use_stop_loss=True, use_overheat=True)
-
-print("模拟策略2: 趋势进攻...")
-nav2 = simulate_trend_timing(daily_data, fin_data, stock_codes, trading_days,
-                             hold_days, benchmark)
-
-print("模拟策略3: 低回撤平衡（择时+仓位管理+止损）...")
-nav3 = simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
-                             hold_days, benchmark)
+# === 运行模拟：对比不同止损率 ===
+stop_losses = [-0.05, -0.07, -0.10]
+nav_results = {}
+for sl in stop_losses:
+    print(f"模拟: 低回撤平衡 - 止损{sl*100:.0f}%...")
+    nav_results[sl] = simulate_low_drawdown(daily_data, fin_data, stock_codes,
+                                            trading_days, hold_days, benchmark,
+                                            stop_loss=sl)
 
 # 基准逐日净值
 bench_nav = []
@@ -413,7 +410,7 @@ if trading_days[0] in benchmark.index:
 else:
     bench_nav = [1.0] * len(trading_days)
 
-# === 绘图 ===
+# === 绘图：止损率对比 ===
 def calc_dd(nav):
     peak = nav[0]
     max_dd = 0
@@ -423,25 +420,26 @@ def calc_dd(nav):
     return max_dd * 100
 
 dates = [d.to_pydatetime() if hasattr(d, 'to_pydatetime') else d for d in trading_days]
-
 fig, ax = plt.subplots(figsize=(14, 7))
 
-dd1, dd2, dd3 = calc_dd(nav1), calc_dd(nav2), calc_dd(nav3)
+colors = {-0.05: '#E63946', -0.07: '#2A9D8F', -0.10: '#457B9D'}
+for sl in stop_losses:
+    nav = nav_results[sl]
+    dd = calc_dd(nav)
+    ax.plot(dates, [(v-1)*100 for v in nav], color=colors[sl],
+            linewidth=2.2,
+            label=f'止损{sl*100:.0f}% {(nav[-1]-1)*100:+.1f}% (回撤{dd:.1f}%)')
 
-ax.plot(dates, [(v-1)*100 for v in nav3], color='#E63946', linewidth=2.2,
-        label=f'低回撤平衡 {(nav3[-1]-1)*100:+.1f}% (回撤{dd3:.1f}%)')
-ax.plot(dates, [(v-1)*100 for v in nav2], color='#2A9D8F', linewidth=1.8,
-        label=f'趋势进攻 {(nav2[-1]-1)*100:+.1f}% (回撤{dd2:.1f}%)')
-ax.plot(dates, [(v-1)*100 for v in nav1], color='#457B9D', linewidth=1.5,
-        alpha=0.7, label=f'防守止损 {(nav1[-1]-1)*100:+.1f}% (回撤{dd1:.1f}%)')
-ax.plot(dates, [(v-1)*100 for v in bench_nav], color='#6C757D', linewidth=1.8,
-        linestyle='--', label=f'沪深300 {(bench_nav[-1]-1)*100:+.1f}%')
+ax.plot(dates, [(v-1)*100 for v in bench_nav], color='#6C757D',
+        linewidth=1.8, linestyle='--',
+        label=f'沪深300 {(bench_nav[-1]-1)*100:+.1f}%')
 
 ax.axhline(y=0, color='black', linewidth=0.5, alpha=0.3)
 ax.set_xlabel('日期', fontsize=11)
 ax.set_ylabel('累计收益率 (%)', fontsize=11)
-ax.set_title('低回撤高收益策略对比（2024-2026）', fontsize=14, fontweight='bold')
-ax.legend(loc='upper left', fontsize=10, framealpha=0.9)
+ax.set_title('止损率对比：-5% vs -7% vs -10%（低回撤平衡策略 2024-2026）',
+             fontsize=14, fontweight='bold')
+ax.legend(loc='upper left', fontsize=11, framealpha=0.9)
 ax.grid(True, alpha=0.3, linestyle='-')
 ax.xaxis.set_major_locator(MonthLocator())
 ax.xaxis.set_major_formatter(DateFormatter('%Y-%m'))
@@ -453,7 +451,9 @@ os.makedirs('./reports/charts', exist_ok=True)
 plt.savefig(out_path, dpi=150, bbox_inches='tight')
 print(f"\n图表已保存: {out_path}")
 print(f"数据点数: {len(trading_days)}个交易日")
-print(f"低回撤平衡: {(nav3[-1]-1)*100:+.2f}% | 最大回撤 {dd3:.1f}%")
-print(f"趋势进攻:   {(nav2[-1]-1)*100:+.2f}% | 最大回撤 {dd2:.1f}%")
-print(f"防守止损:   {(nav1[-1]-1)*100:+.2f}% | 最大回撤 {dd1:.1f}%")
-print(f"沪深300:    {(bench_nav[-1]-1)*100:+.2f}%")
+print(f"--- 止损率对比 ---")
+for sl in stop_losses:
+    nav = nav_results[sl]
+    dd = calc_dd(nav)
+    print(f"止损{sl*100:.0f}%: {(nav[-1]-1)*100:+.2f}% | 最大回撤 {dd:.1f}%")
+print(f"沪深300: {(bench_nav[-1]-1)*100:+.2f}%")
