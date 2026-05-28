@@ -497,10 +497,7 @@ def run_backtest():
                     if code in daily_data and today in daily_data[code].index:
                         cur_price = float(daily_data[code].loc[today]['收盘'])
                         ret = cur_price / buy_price - 1
-                        if ret < stop_loss_pct:
-                            port_return += weight * stop_loss_pct
-                        else:
-                            port_return += weight * ret
+                        port_return += weight * ret
                 cash_return = sum(stopped.values())
                 period_ret = port_return + cash_return
                 nav_base = nav_base * (1 + period_ret) * (1 - cost)
@@ -512,7 +509,7 @@ def run_backtest():
                 bd = trading_days[i - hold_days]
                 if bd in benchmark.index and today in benchmark.index:
                     bench_ret = (benchmark.loc[today]['close'] / benchmark.loc[bd]['close'] - 1) * 100
-                strat_ret_pct = period_ret * 100
+                strat_ret_pct = ((1 + period_ret) * (1 - cost) - 1) * 100
                 results.append({
                     'buy_date': buy_date_str,
                     'sell_date': sell_date_str,
@@ -567,7 +564,7 @@ def run_backtest():
                         cur_price = float(daily_data[code].loc[today]['收盘'])
                         ret = cur_price / buy_price - 1
                         if ret < stop_loss_pct:
-                            stopped[code] = weight * (stop_loss_pct - cost)
+                            stopped[code] = weight * (ret - cost)
                         else:
                             port_return += weight * ret
                             new_holdings.append((code, buy_price, weight))
@@ -580,34 +577,58 @@ def run_backtest():
         i += 1
 
     # 5. 输出结果
-    print_results(results)
+    print_results(results, daily_navs, benchmark)
     plot_backtest_results(results, daily_navs, trading_days, benchmark)
 
 
 # === PLACEHOLDER_PRINT ===
 
 
-def print_results(results):
+def print_results(results, daily_navs=None, benchmark=None):
     """打印回测结果"""
     if not results:
         print("无回测结果")
         return
 
     strat_returns = [r['strategy_return'] for r in results]
-    bench_returns = [r['benchmark_return'] for r in results]
-    excess_returns = [r['excess_return'] for r in results]
 
-    # 累计收益（复利）
+    # 策略累计收益（复利）
     cum_strat = 1.0
-    cum_bench = 1.0
-    max_cum = 1.0
-    max_drawdown = 0
     for r in results:
         cum_strat *= (1 + r['strategy_return'] / 100)
-        cum_bench *= (1 + r['benchmark_return'] / 100)
-        max_cum = max(max_cum, cum_strat)
-        dd = (max_cum - cum_strat) / max_cum
-        max_drawdown = max(max_drawdown, dd)
+
+    # 基准累计收益：直接用起止日收盘价（避免空仓期漏算）
+    cum_bench = 1.0
+    if benchmark is not None:
+        from datetime import datetime
+        start_d = results[0]['buy_date']
+        end_d = results[-1]['sell_date']
+        start_dt = datetime.strptime(start_d, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_d, '%Y-%m-%d')
+        bm_dates = benchmark.index
+        bm_start = bm_dates[bm_dates >= start_dt][0]
+        bm_end = bm_dates[bm_dates <= end_dt][-1]
+        cum_bench = float(benchmark.loc[bm_end]['close']) / float(benchmark.loc[bm_start]['close'])
+    else:
+        for r in results:
+            cum_bench *= (1 + r['benchmark_return'] / 100)
+
+    # 最大回撤：优先用逐日净值（更精确）
+    max_drawdown = 0
+    if daily_navs and len(daily_navs) > 1:
+        peak = daily_navs[0]
+        for v in daily_navs:
+            peak = max(peak, v)
+            dd = (peak - v) / peak
+            max_drawdown = max(max_drawdown, dd)
+    else:
+        max_cum = 1.0
+        cum_tmp = 1.0
+        for r in results:
+            cum_tmp *= (1 + r['strategy_return'] / 100)
+            max_cum = max(max_cum, cum_tmp)
+            dd = (max_cum - cum_tmp) / max_cum
+            max_drawdown = max(max_drawdown, dd)
 
     total_wins = sum(r['win_count'] for r in results)
     total_trades = sum(r['num_stocks'] for r in results)

@@ -231,8 +231,11 @@ def _select_ultra_defensive(all_stocks):
 
 
 def simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
-                          hold_days, benchmark, max_stocks=6, stop_loss=-0.05):
-    """低回撤策略v3：牛市进攻满仓 + 熊市超防守满仓（不降仓位，靠选股抗跌）"""
+                          hold_days, benchmark, max_stocks=6, stop_loss=-0.05,
+                          force_mode=None):
+    """低回撤策略v3：牛市进攻满仓 + 熊市超防守满仓（不降仓位，靠选股抗跌）
+    force_mode: None=MA60自动切换, 'basic'=纯基础, 'offensive'=纯进攻, 'defensive'=纯超防守
+    """
     nav_list = []
     nav_base = 1.0
     holdings = []
@@ -251,10 +254,7 @@ def simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
                     if code in daily_data and today in daily_data[code].index:
                         cur_price = float(daily_data[code].loc[today]['收盘'])
                         ret = cur_price / buy_price - 1
-                        if ret < cur_stop:
-                            port_return += weight * cur_stop
-                        else:
-                            port_return += weight * ret
+                        port_return += weight * ret
                 cash_return = sum(stopped.values())
                 nav_base = nav_base * (1 + port_return + cash_return)
                 nav_base *= (1 - cost)
@@ -274,10 +274,17 @@ def simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
                 if sd:
                     all_stocks.append(sd)
 
-            if bull_mode:
+            if force_mode == 'basic':
+                selected = select_stocks_optimized(all_stocks)[:max_stocks]
+            elif force_mode == 'offensive':
                 selected = select_stocks_offensive(all_stocks)[:max_stocks]
-            else:
+            elif force_mode == 'defensive':
                 selected = select_stocks_ultra_defensive(all_stocks)[:max_stocks]
+            else:
+                if bull_mode:
+                    selected = select_stocks_offensive(all_stocks)[:max_stocks]
+                else:
+                    selected = select_stocks_ultra_defensive(all_stocks)[:max_stocks]
 
             holdings = []
             stopped = {}
@@ -296,7 +303,7 @@ def simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
                         cur_price = float(daily_data[code].loc[today]['收盘'])
                         ret = cur_price / buy_price - 1
                         if ret < cur_stop:
-                            stopped[code] = weight * (cur_stop - cost)
+                            stopped[code] = weight * (ret - cost)
                         else:
                             port_return += weight * ret
                             new_holdings.append((code, buy_price, weight))
@@ -389,14 +396,94 @@ def simulate_trend_timing(daily_data, fin_data, stock_codes, trading_days,
     return nav_list
 
 
-# === 运行模拟：对比不同止损率 ===
-stop_losses = [-0.05, -0.07, -0.10]
-nav_results = {}
-for sl in stop_losses:
-    print(f"模拟: 低回撤平衡 - 止损{sl*100:.0f}%...")
-    nav_results[sl] = simulate_low_drawdown(daily_data, fin_data, stock_codes,
-                                            trading_days, hold_days, benchmark,
-                                            stop_loss=sl)
+# === 运行模拟：对比止损模型（cap vs 真实） ===
+print("模拟: 止损cap在-5%（当前模型）...")
+nav_cap = simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
+                                hold_days, benchmark)
+
+# 真实止损：用实际跌幅而非cap
+def simulate_real_stoploss(daily_data, fin_data, stock_codes, trading_days,
+                           hold_days, benchmark, stop_trigger=-0.05):
+    """真实止损模型：触发-5%后按实际价格卖出（不cap）"""
+    nav_list = []
+    nav_base = 1.0
+    holdings = []
+    stopped = {}
+    cost = 0.001 + 0.0015
+
+    i = 0
+    while i < len(trading_days):
+        today = trading_days[i]
+
+        if i % hold_days == 0:
+            if i > 0 and holdings:
+                port_return = 0
+                for code, buy_price, weight in holdings:
+                    if code in daily_data and today in daily_data[code].index:
+                        cur_price = float(daily_data[code].loc[today]['收盘'])
+                        ret = cur_price / buy_price - 1
+                        port_return += weight * ret
+                cash_return = sum(stopped.values())
+                nav_base = nav_base * (1 + port_return + cash_return)
+                nav_base *= (1 - cost)
+
+            bull_mode = False
+            if today in benchmark.index:
+                loc = benchmark.index.get_loc(today)
+                if loc >= 60:
+                    ma60 = benchmark.iloc[loc-60:loc]['close'].mean()
+                    cur = float(benchmark.loc[today]['close'])
+                    bull_mode = cur > ma60
+
+            all_stocks = []
+            for code in stock_codes:
+                sd = build_stock_data(code, daily_data, today, fin_data)
+                if sd:
+                    all_stocks.append(sd)
+
+            if bull_mode:
+                selected = select_stocks_offensive(all_stocks)
+            else:
+                selected = select_stocks_ultra_defensive(all_stocks)
+
+            holdings = []
+            stopped = {}
+            if selected:
+                for s in selected:
+                    holdings.append((s['code'], s['price'], 1.0/len(selected)))
+            nav_list.append(nav_base)
+        else:
+            if not holdings:
+                nav_list.append(nav_base)
+            else:
+                port_return = 0
+                new_holdings = []
+                for code, buy_price, weight in holdings:
+                    if code in daily_data and today in daily_data[code].index:
+                        cur_price = float(daily_data[code].loc[today]['收盘'])
+                        ret = cur_price / buy_price - 1
+                        if ret < stop_trigger:
+                            stopped[code] = weight * (ret - cost)
+                        else:
+                            port_return += weight * ret
+                            new_holdings.append((code, buy_price, weight))
+                    else:
+                        new_holdings.append((code, buy_price, weight))
+                holdings = new_holdings
+                cash_return = sum(stopped.values())
+                nav_list.append(nav_base * (1 + port_return + cash_return))
+
+        i += 1
+
+    return nav_list
+
+print("模拟: 真实止损（按实际跌幅卖出）...")
+nav_real = simulate_real_stoploss(daily_data, fin_data, stock_codes,
+                                  trading_days, hold_days, benchmark)
+
+print("模拟: 无止损（持有到调仓日）...")
+nav_none = simulate_low_drawdown(daily_data, fin_data, stock_codes, trading_days,
+                                 hold_days, benchmark, stop_loss=-1.0)
 
 # 基准逐日净值
 bench_nav = []
@@ -410,7 +497,7 @@ if trading_days[0] in benchmark.index:
 else:
     bench_nav = [1.0] * len(trading_days)
 
-# === 绘图：止损率对比 ===
+# === 绘图 ===
 def calc_dd(nav):
     peak = nav[0]
     max_dd = 0
@@ -422,13 +509,15 @@ def calc_dd(nav):
 dates = [d.to_pydatetime() if hasattr(d, 'to_pydatetime') else d for d in trading_days]
 fig, ax = plt.subplots(figsize=(14, 7))
 
-colors = {-0.05: '#E63946', -0.07: '#2A9D8F', -0.10: '#457B9D'}
-for sl in stop_losses:
-    nav = nav_results[sl]
+items = [
+    (nav_cap, '止损cap -5%（当前）', '#E63946'),
+    (nav_real, '真实止损（实际价卖出）', '#2A9D8F'),
+    (nav_none, '无止损', '#457B9D'),
+]
+for nav, label, color in items:
     dd = calc_dd(nav)
-    ax.plot(dates, [(v-1)*100 for v in nav], color=colors[sl],
-            linewidth=2.2,
-            label=f'止损{sl*100:.0f}% {(nav[-1]-1)*100:+.1f}% (回撤{dd:.1f}%)')
+    ax.plot(dates, [(v-1)*100 for v in nav], color=color, linewidth=2.2,
+            label=f'{label} {(nav[-1]-1)*100:+.1f}% (回撤{dd:.1f}%)')
 
 ax.plot(dates, [(v-1)*100 for v in bench_nav], color='#6C757D',
         linewidth=1.8, linestyle='--',
@@ -437,7 +526,7 @@ ax.plot(dates, [(v-1)*100 for v in bench_nav], color='#6C757D',
 ax.axhline(y=0, color='black', linewidth=0.5, alpha=0.3)
 ax.set_xlabel('日期', fontsize=11)
 ax.set_ylabel('累计收益率 (%)', fontsize=11)
-ax.set_title('止损率对比：-5% vs -7% vs -10%（低回撤平衡策略 2024-2026）',
+ax.set_title('止损模型验证：cap vs 真实 vs 无止损（2024-2026）',
              fontsize=14, fontweight='bold')
 ax.legend(loc='upper left', fontsize=11, framealpha=0.9)
 ax.grid(True, alpha=0.3, linestyle='-')
@@ -451,9 +540,8 @@ os.makedirs('./reports/charts', exist_ok=True)
 plt.savefig(out_path, dpi=150, bbox_inches='tight')
 print(f"\n图表已保存: {out_path}")
 print(f"数据点数: {len(trading_days)}个交易日")
-print(f"--- 止损率对比 ---")
-for sl in stop_losses:
-    nav = nav_results[sl]
+print(f"--- 止损模型验证 ---")
+for nav, label, _ in items:
     dd = calc_dd(nav)
-    print(f"止损{sl*100:.0f}%: {(nav[-1]-1)*100:+.2f}% | 最大回撤 {dd:.1f}%")
+    print(f"{label}: {(nav[-1]-1)*100:+.2f}% | 最大回撤 {dd:.1f}%")
 print(f"沪深300: {(bench_nav[-1]-1)*100:+.2f}%")
