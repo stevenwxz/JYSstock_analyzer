@@ -12,6 +12,7 @@ import os
 # 添加config路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from config.dividend_override import get_manual_dividend_yield, has_manual_override
+from config.config import IFIND_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,9 @@ class StockDataFetcher:
         self.a_share_stocks = None
         self.hk_connect_stocks = None
         self.failed_stocks = []  # 记录失败的股票代码
+        self._ifind_industry_cache: Dict[str, Dict] = {}
+        self._ifind_checked = False
+        self._ifind_ready = False
 
         # User-Agent池 - 模拟不同的浏览器
         self.user_agents = [
@@ -30,6 +34,73 @@ class StockDataFetcher:
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ]
+
+    def _use_ifind(self) -> bool:
+        if not IFIND_CONFIG.get('enabled') or not IFIND_CONFIG.get('prefer_ifind'):
+            return False
+        if self._ifind_checked:
+            return self._ifind_ready
+        self._ifind_checked = True
+        try:
+            from src.data.ifind_client import IFinDClient
+            if IFinDClient.is_available() and IFinDClient.auto_login():
+                self._ifind_ready = True
+                logger.info("iFinD 数据源已就绪（优先使用）")
+        except Exception as e:
+            logger.debug(f"iFinD 就绪检查失败：{e}")
+        return self._ifind_ready
+
+    def _ifind_batch_realtime(self, codes: List[str]) -> Dict[str, Dict]:
+        """通过 iFinD 批量获取实时行情，返回 {code: data_dict}"""
+        if not codes:
+            return {}
+        try:
+            from src.data.ifind_client import IFinDClient
+            quotes = IFinDClient.get_realtime_quotes(codes)
+            if not quotes:
+                return {}
+            result = {}
+            for q in quotes:
+                code = q.get('code', '')
+                if code:
+                    result[code] = q
+            return result
+        except Exception as e:
+            logger.warning(f"iFinD 批量行情获取失败：{e}")
+            return {}
+
+    def _ifind_batch_industry(self, codes: List[str]) -> Dict[str, Dict]:
+        """通过 iFinD 批量获取行业分类"""
+        cache_key = '_'
+        if self._ifind_industry_cache:
+            missing = [c for c in codes if c not in self._ifind_industry_cache]
+            if not missing:
+                return {c: self._ifind_industry_cache[c] for c in codes if c in self._ifind_industry_cache}
+            codes_to_fetch = missing
+        else:
+            codes_to_fetch = codes
+
+        if not codes_to_fetch:
+            return {}
+        try:
+            from src.data.ifind_client import IFinDClient
+            industry_map = IFinDClient.get_industry_map(codes_to_fetch)
+            if industry_map:
+                self._ifind_industry_cache.update(industry_map)
+        except Exception as e:
+            logger.warning(f"iFinD 行业分类获取失败：{e}")
+
+        return {c: self._ifind_industry_cache[c] for c in codes if c in self._ifind_industry_cache}
+
+    def _ifind_historical_data(self, code: str, days: int = 30) -> pd.DataFrame:
+        """通过 iFinD 获取历史K线数据"""
+        try:
+            from src.data.ifind_client import IFinDClient
+            df = IFinDClient.get_historical_kline(code, days=days)
+            return df if df is not None else pd.DataFrame()
+        except Exception as e:
+            logger.debug(f"iFinD 获取K线失败（{code}）：{e}")
+            return pd.DataFrame()
 
     def get_a_share_list(self) -> pd.DataFrame:
         """获取A股股票列表"""
@@ -65,19 +136,28 @@ class StockDataFetcher:
         time.sleep(delay)
 
     def get_stock_industry_info(self, stock_code: str) -> str:
-        """获取股票行业信息 - 使用akshare获取行业分类"""
+        """获取股票行业信息 - 优先使用iFinD，回退akshare"""
+        try:
+            if self._use_ifind():
+                ind_data = self._ifind_batch_industry([stock_code])
+                if stock_code in ind_data:
+                    info = ind_data[stock_code]
+                    sw = info.get('industry_sw', '') or ''
+                    ths = info.get('industry_ths', '') or ''
+                    return sw if sw else (ths if ths else "未知行业")
+        except Exception:
+            pass
+
         try:
             import akshare as ak
-            
-            # 获取股票所属行业
+
             stock_info = ak.stock_individual_info_em(symbol=stock_code)
             if not stock_info.empty:
-                # 查找行业字段
                 industry_row = stock_info[stock_info['item'] == '行业']
                 if not industry_row.empty:
                     industry = industry_row['value'].iloc[0]
                     return industry if industry else "未知行业"
-            
+
             return "未知行业"
         except Exception as e:
             logger.debug(f"获取股票 {stock_code} 行业信息失败: {e}")
@@ -213,7 +293,8 @@ class StockDataFetcher:
                                 'total_shares': total_shares,  # 总股本（万股单位）
                                 'volume': volume,
                                 'turnover': turnover,  # 成交额
-                                'turnover_rate': turnover_rate
+                                'turnover_rate': turnover_rate,
+                                'data_source': 'tencent'  # 数据来源标识
                             }
 
                 # 如果响应不成功，等待后重试 - 使用指数退避 + 随机抖动
@@ -801,52 +882,81 @@ class StockDataFetcher:
 
     def batch_get_stock_data(self, stock_codes: List[str], calculate_momentum: bool = True,
                             include_fundamental: bool = True) -> List[Dict]:
-        """批量获取股票数据 - 带失败重试机制,包含基本面数据"""
+        """批量获取股票数据 - iFinD优先（批量），回退腾讯财经（逐只）"""
         results = []
-        seen_codes = set()  # 用于去重
-
-        # 统计动量计算情况
+        seen_codes = set()
         momentum_success = 0
         momentum_fail = 0
-
-        # 统计基本面数据获取情况
         fundamental_success = 0
         fundamental_fail = 0
-
-        # 清空失败列表
         self.failed_stocks = []
+
+        use_ifind = self._use_ifind()
+
+        if use_ifind:
+            logger.info("使用同花顺 iFinD 批量获取行情数据...")
+            ifind_quotes = self._ifind_batch_realtime(stock_codes)
+            ifind_industries = self._ifind_batch_industry(stock_codes)
+            logger.info(f"iFinD 批量行情覆盖: {len(ifind_quotes)}/{len(stock_codes)} 只")
+        else:
+            ifind_quotes = {}
+            ifind_industries = {}
 
         for i, code in enumerate(stock_codes):
             try:
-                # 去重检查
                 if code in seen_codes:
                     logger.warning(f"跳过重复股票: {code}")
                     continue
 
-                # 获取实时数据
-                realtime_data = self.get_stock_realtime_data(code)
+                realtime_data = None
+                if use_ifind and code in ifind_quotes:
+                    q = ifind_quotes[code]
+                    realtime_data = {
+                        'code': code,
+                        'name': q.get('name', ''),
+                        'price': q.get('price') or 0,
+                        'prev_close': q.get('prev_close') or 0,
+                        'change_pct': q.get('change_pct') or 0,
+                        'pe_ratio': q.get('pe_ratio'),
+                        'pb_ratio': q.get('pb_ratio'),
+                        'market_cap': (q.get('market_cap') / 10000) if q.get('market_cap') else None,
+                        'total_shares': None,
+                        'volume': int(q.get('volume') or 0),
+                        'turnover': int(q.get('turnover') or 0),
+                        'turnover_rate': q.get('turnover_rate'),
+                        'data_source': 'ifind',
+                    }
                 if not realtime_data:
-                    continue
+                    realtime_data = self.get_stock_realtime_data(code)
+                    if not realtime_data:
+                        if code not in self.failed_stocks:
+                            self.failed_stocks.append(code)
+                        continue
+                    realtime_data['data_source'] = 'tencent'
 
-                # 获取行业信息
-                industry = self.get_stock_industry_info(code)
-                realtime_data['industry'] = industry
+                if code in ifind_industries:
+                    info = ifind_industries[code]
+                    sw = info.get('industry_sw', '') or ''
+                    ths = info.get('industry_ths', '') or ''
+                    realtime_data['industry'] = sw if sw else (ths if ths else "未知行业")
+                else:
+                    industry = self.get_stock_industry_info(code)
+                    realtime_data['industry'] = industry
 
-                # 计算20日动量
                 if calculate_momentum:
                     try:
-                        # 获取历史数据计算动量
-                        historical_data = self.get_stock_historical_data(code, days=30)
-                        if not historical_data.empty and len(historical_data) >= 20:
-                            momentum = self.calculate_momentum(historical_data, days=20)
+                        hist_df = None
+                        if use_ifind:
+                            hist_df = self._ifind_historical_data(code, days=30)
+                        if hist_df is None or hist_df.empty:
+                            hist_df = self.get_stock_historical_data(code, days=30)
+                        if hist_df is not None and not hist_df.empty and len(hist_df) >= 20:
+                            momentum = self.calculate_momentum(hist_df, days=20)
                             realtime_data['momentum_20d'] = momentum
                             momentum_success += 1
-                            if (i + 1) % 50 == 0:
-                                logger.info(f"动量计算进度: {momentum_success}成功/{momentum_fail}失败")
                         else:
                             realtime_data['momentum_20d'] = 0
                             momentum_fail += 1
-                            logger.debug(f"{code} 历史数据不足20天，动量设为0 (数据量:{len(historical_data) if not historical_data.empty else 0})")
                     except Exception as e:
                         logger.warning(f"计算 {code} 动量失败: {e}")
                         realtime_data['momentum_20d'] = 0
@@ -854,13 +964,11 @@ class StockDataFetcher:
                 else:
                     realtime_data['momentum_20d'] = 0
 
-                # 获取基本面数据
                 if include_fundamental:
                     try:
                         fundamental_data = self.get_stock_fundamental_data(code)
                         if fundamental_data:
                             realtime_data.update(fundamental_data)
-                            # 判断是否成功获取了关键指标
                             if fundamental_data.get('roe') is not None or fundamental_data.get('pb_ratio') is not None:
                                 fundamental_success += 1
                             else:
@@ -872,22 +980,19 @@ class StockDataFetcher:
                         fundamental_fail += 1
 
                 results.append(realtime_data)
-                seen_codes.add(code)  # 记录已处理的股票代码
+                seen_codes.add(code)
 
-                # 优化请求间隔时间，更好地防止限流
-                # 使用随机延迟模拟人工操作
-                if calculate_momentum:
-                    if (i + 1) % 3 == 0:
-                        # 每处理3只股票暂停较长时间
-                        self._random_delay(1.5, 3.0)
+                if not use_ifind:
+                    if calculate_momentum:
+                        if (i + 1) % 3 == 0:
+                            self._random_delay(1.5, 3.0)
+                        else:
+                            self._random_delay(0.5, 1.2)
                     else:
-                        # 正常随机间隔
-                        self._random_delay(0.5, 1.2)
-                else:
-                    if (i + 1) % 10 == 0:
-                        self._random_delay(1.0, 2.0)
-                    else:
-                        self._random_delay(0.3, 0.8)
+                        if (i + 1) % 10 == 0:
+                            self._random_delay(1.0, 2.0)
+                        else:
+                            self._random_delay(0.3, 0.8)
 
             except Exception as e:
                 logger.error(f"批量获取股票 {code} 数据失败: {e}")
@@ -899,14 +1004,12 @@ class StockDataFetcher:
         if include_fundamental:
             logger.info(f"基本面数据获取结果: 成功{fundamental_success}只，失败{fundamental_fail}只")
 
-        # 如果有失败的股票，尝试重新获取
-        if self.failed_stocks:
+        if self.failed_stocks and IFIND_CONFIG.get('auto_fallback'):
             logger.info(f"检测到 {len(self.failed_stocks)} 只失败股票，准备重试...")
             retry_results = self._retry_failed_stocks(calculate_momentum)
             results.extend(retry_results)
             logger.info(f"重试完成，成功恢复 {len(retry_results)} 只股票数据")
 
-        # 用真实财报数据覆盖 ROE 和 profit_growth
         if include_fundamental:
             try:
                 from src.data.financial_report_fetcher import get_financial_data_map
@@ -920,6 +1023,8 @@ class StockDataFetcher:
                             stock['roe'] = fin['roe']
                         if fin.get('profit_growth') is not None:
                             stock['profit_growth'] = fin['profit_growth']
+                        if fin.get('source'):
+                            stock['financial_source'] = fin['source']
                         override_count += 1
                 logger.info(f"财报数据覆盖: {override_count}/{len(results)}只")
             except Exception as e:

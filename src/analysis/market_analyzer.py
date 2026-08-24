@@ -27,9 +27,10 @@ class MarketAnalyzer:
         self.stock_filter = StockFilter()
         self.analysis_results = {}
         self.use_async = use_async
+        self._last_market_mode = None  # 缓存上次趋势模式，用于缓冲带逻辑
 
     def detect_market_trend(self) -> Dict:
-        """检测沪深300趋势：价格是否站上MA60"""
+        """检测沪深300趋势：价格vs MA60，带±2%缓冲带避免频繁切换"""
         try:
             end_date = datetime.now().strftime('%Y-%m-%d')
             start_date = (datetime.now() - timedelta(days=120)).strftime('%Y-%m-%d')
@@ -46,15 +47,31 @@ class MarketAnalyzer:
             closes = [float(k[2]) for k in klines]
             current_price = closes[-1]
             ma60 = np.mean(closes[-60:])
-            is_bull = current_price > ma60
 
-            mode = 'offensive' if is_bull else 'defensive'
-            logger.info(f"趋势检测: 沪深300={current_price:.2f}, MA60={ma60:.2f}, 模式={mode}")
+            # 缓冲带逻辑：站上MA60*1.02切进攻，跌破MA60*0.98切防守，中间维持上次模式
+            upper_band = ma60 * 1.02
+            lower_band = ma60 * 0.98
+
+            if current_price > upper_band:
+                mode = 'offensive'
+            elif current_price < lower_band:
+                mode = 'defensive'
+            else:
+                # 在缓冲带内，维持上次模式（首次默认防守）
+                mode = self._last_market_mode if self._last_market_mode else 'defensive'
+                logger.info(f"在缓冲带内 [{lower_band:.2f}, {upper_band:.2f}]，维持{mode}模式")
+
+            self._last_market_mode = mode
+            diff_pct = (current_price / ma60 - 1) * 100
+            logger.info(f"趋势检测: 沪深300={current_price:.2f}, MA60={ma60:.2f}(±2%), 偏离{diff_pct:+.2f}%, 模式={mode}")
+
             return {
                 'mode': mode,
                 'price': current_price,
                 'ma60': round(ma60, 2),
-                'reason': f'沪深300({current_price:.2f}) {">" if is_bull else "<"} MA60({ma60:.2f})'
+                'upper_band': round(upper_band, 2),
+                'lower_band': round(lower_band, 2),
+                'reason': f'沪深300({current_price:.2f}) vs MA60({ma60:.2f}), 偏离{diff_pct:+.1f}%'
             }
         except Exception as e:
             logger.error(f"趋势检测失败: {e}，默认防守模式")
@@ -167,16 +184,21 @@ class MarketAnalyzer:
                 'market_overview': market_overview,
                 'market_trend': trend_info,
                 'market_mode': market_mode,
+                'scoring_mode': market_mode if market_mode in ('offensive', 'defensive') else 'basic',
                 'selected_stocks': selected_stocks,
                 'total_analyzed': len(all_stock_data),
                 'selection_criteria': STOCK_FILTER_CONFIG,
                 'summary': self._generate_analysis_summary(selected_stocks, market_overview)
             }
 
-            # 7. 保存分析结果
+            # 7. 止损检查（对比上次推荐持仓的当前价格）
+            stop_loss_warnings = self.check_stop_loss()
+            analysis_result['stop_loss_warnings'] = stop_loss_warnings
+
+            # 8. 保存分析结果
             self._save_analysis_result(analysis_result)
 
-            # 8. 自动生成Markdown报告
+            # 9. 自动生成Markdown报告
             self._generate_markdown_report(analysis_result)
 
             logger.info("盘后分析完成")
@@ -301,6 +323,61 @@ class MarketAnalyzer:
             logger.error(f"获取最新分析结果失败: {e}")
             return None
 
+    def check_stop_loss(self) -> List[Dict]:
+        """检查上次推荐股票是否触及止损线 -5%"""
+        warnings = []
+        try:
+            prev_analysis = self.get_latest_analysis()
+            if not prev_analysis:
+                logger.info("无历史分析结果，跳过止损检查")
+                return warnings
+
+            prev_stocks = prev_analysis.get('selected_stocks', [])
+            if not prev_stocks:
+                return warnings
+
+            logger.info(f"开始止损检查，上次推荐 {len(prev_stocks)} 只股票")
+            stop_loss_pct = STOCK_FILTER_CONFIG.get('stop_loss_pct', -0.05)
+
+            for prev_stock in prev_stocks:
+                code = prev_stock.get('code')
+                name = prev_stock.get('name')
+                orig_price = prev_stock.get('price', 0)
+                if not code or not orig_price:
+                    continue
+
+                # 获取当前价格
+                current_data = self.data_fetcher.get_stock_realtime_data(code)
+                if not current_data:
+                    continue
+
+                current_price = current_data.get('price', 0)
+                if current_price == 0:
+                    continue
+
+                # 计算收益率
+                pnl_pct = (current_price / orig_price - 1)
+                if pnl_pct <= stop_loss_pct:
+                    warnings.append({
+                        'code': code,
+                        'name': name,
+                        'orig_price': orig_price,
+                        'current_price': current_price,
+                        'pnl_pct': pnl_pct * 100,
+                        'reason': f'触及止损线 {stop_loss_pct*100:.0f}%'
+                    })
+                    logger.warning(f"止损警告: {name}({code}) {orig_price:.2f}→{current_price:.2f} ({pnl_pct*100:+.2f}%)")
+
+            if warnings:
+                logger.warning(f"止损检查完成，发现 {len(warnings)} 只触及止损线")
+            else:
+                logger.info("止损检查完成，无股票触及止损线")
+
+        except Exception as e:
+            logger.error(f"止损检查失败: {e}")
+
+        return warnings
+
     def generate_performance_report(self, days: int = 7) -> Dict:
         """生成表现报告"""
         try:
@@ -380,12 +457,33 @@ class MarketAnalyzer:
             if is_bull:
                 md_content += "**选股逻辑（进攻）**: 基础分(技术面+估值+盈利+安全+股息) + 动量加分(>15%:+12, >10%:+8, >5%:+4) + 高成长加分(>30%:+5)\n\n"
             else:
-                md_content += "**选股逻辑（防守）**: 低波动(30) + 低PB(25) + 高ROE(25) + 小回撤(20) + 温和动量(5) = 满分105\n\n"
+                md_content += "**选股逻辑（防守）**: 安全性(50) + 低PB(25) + 高ROE(25) + 温和动量(5) = 满分105\n\n"
+
+            # 止损警告（如果有）
+            stop_loss_warnings = analysis_result.get('stop_loss_warnings', [])
+            if stop_loss_warnings:
+                md_content += "## ⚠️ 止损警告\n\n"
+                md_content += "| 股票 | 原价 | 现价 | 收益率 |\n"
+                md_content += "|:-----|-----:|-----:|-------:|\n"
+                for w in stop_loss_warnings:
+                    md_content += f"| **{w.get('name')} {w.get('code')}** | {w.get('orig_price', 0):.2f} | {w.get('current_price', 0):.2f} | **{w.get('pnl_pct', 0):+.2f}%** |\n"
+                md_content += "\n"
 
             if is_bull:
                 md_content += self._build_offensive_table(selected_stocks)
             else:
                 md_content += self._build_defensive_table(selected_stocks)
+
+            # 统计数据来源
+            ifind_count = sum(1 for s in selected_stocks if s.get('data_source') == 'ifind')
+            tencent_count = sum(1 for s in selected_stocks if s.get('data_source') == 'tencent')
+            if ifind_count > 0:
+                md_content += f"\n<sub>数据源: iFinD {ifind_count}只"
+                if tencent_count > 0:
+                    md_content += f" + 腾讯 {tencent_count}只"
+                md_content += "</sub>\n"
+            elif tencent_count > 0:
+                md_content += f"\n<sub>数据源: 腾讯财经 {tencent_count}只</sub>\n"
 
             md_content += "\n---\n\n"
             md_content += f"PE≤{config.get('max_pe_ratio', 30)} | "
@@ -430,22 +528,20 @@ class MarketAnalyzer:
         return table
 
     def _build_defensive_table(self, stocks: List[Dict]) -> str:
-        """防守模式股票表格（含分项得分）"""
-        table = "| 排名 | 股票 | 价格 | PB | ROE | 波动 | 回撤 | 低波动 | 低PB | 高ROE | 小回撤 | 动量 | 总分 |\n"
-        table += "|:----:|:-----|-----:|----:|----:|-----:|-----:|:------:|:----:|:-----:|:------:|:----:|-----:|\n"
+        """防守模式股票表格（含分项得分，隐藏波动/回撤原始值，低波动+小回撤合并为安全性）"""
+        table = "| 排名 | 股票 | 价格 | PB | ROE | 安全性 | 低PB | 高ROE | 动量加分 | 总分 |\n"
+        table += "|:----:|:-----|-----:|----:|----:|:------:|:----:|:-----:|:--------:|-----:|\n"
         for s in stocks:
             roe_d = f"{s.get('roe', 0):.1f}%" if s.get('roe') else "-"
             name = f"{s.get('name', '-')} {s.get('code', '-')}"
             detail = s.get('strength_score_detail', {})
             breakdown = detail.get('breakdown', {})
-            lv = breakdown.get('low_volatility', 0)
+            safety = breakdown.get('low_volatility', 0) + breakdown.get('small_drawdown', 0)
             lpb = breakdown.get('low_pb', 0)
             hroe = breakdown.get('high_roe', 0)
-            sdd = breakdown.get('small_drawdown', 0)
             mb = breakdown.get('momentum_bonus', 0)
             table += f"| {s.get('rank', 0)} | {name} "
             table += f"| {s.get('price', 0):.2f} | {s.get('pb_ratio', 0):.2f} | {roe_d} "
-            table += f"| {s.get('volatility_20d', 0):.2f}% | {s.get('max_drawdown_20d', 0):.1f}% "
-            table += f"| {lv} | {lpb} | {hroe} | {sdd} | {mb} "
+            table += f"| {safety} | {lpb} | {hroe} | {mb} "
             table += f"| **{s.get('strength_score', 0):.0f}** |\n"
         return table

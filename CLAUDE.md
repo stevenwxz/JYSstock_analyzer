@@ -27,9 +27,10 @@ python run_backtest_optimized.py
 
 ## 架构
 
-- `src/data/data_fetcher.py` — 通过腾讯财经API获取A股实时数据
+- `src/data/ifind_client.py` — 同花顺 iFinD SDK 客户端，单例模式封装登录/登出，提供：成分股、财报、行业、行情、K线、iWencai 智能取数（需配置 IFIND_USERNAME/IFIND_PASSWORD）
+- `src/data/data_fetcher.py` — **iFinD 优先 + 腾讯财经API兜底**：批量取数时iFinD一次返回300只；逐只失败时自动降级腾讯
 - `src/data/async_data_fetcher.py` — 异步批量获取（默认，并发20），计算动量/波动率/最大回撤
-- `src/data/financial_report_fetcher.py` — 通过akshare获取真实财报数据（ROE、利润增长率）
+- `src/data/financial_report_fetcher.py` — 财报数据：iFinD THS_BD 优先 + akshare fallback，并优先用 iFinD THS_DP 获取最新沪深300成分股
 - `src/analysis/stock_filter.py` — 核心评分筛选，含三种模式：
   - `select_top_stocks()` — 基础模式（技术面30+估值25+盈利30+安全10+股息5）
   - `select_top_stocks_offensive()` — 进攻模式（基础分+动量加分+成长加分）
@@ -37,7 +38,7 @@ python run_backtest_optimized.py
 - `src/analysis/market_analyzer.py` — 市场分析协调器，含MA60趋势检测和模式切换
 - `src/notification/email_sender.py` — QQ邮箱SMTP发送HTML报告
 - `src/scheduler/task_scheduler.py` — 基于schedule库的定时任务
-- `config/config.py` — 筛选参数（PE<30, 换手率>1%, 最大持仓6只, 止损-5%）
+- `config/config.py` — 筛选参数（PE<30, 换手率>1%, 最大持仓6只, 止损-5%） + iFinD 开关/账号配置（IFIND_CONFIG）
 - `config/backtest_config.py` — 回测参数（区间、持仓天数、交易成本）
 - `config/dividend_override.py` — 股息率手动修正
 
@@ -85,6 +86,9 @@ email_sender / reports/
 ## 注意事项
 
 - 代码中主动禁用HTTP代理（访问国内akshare数据源不需要代理）
-- 环境变量通过 `.env` 文件配置（EMAIL_ADDRESS, EMAIL_PASSWORD, TO_EMAIL）
+- 环境变量通过 `.env` 文件配置：
+  - 邮件：`EMAIL_ADDRESS`, `EMAIL_PASSWORD`, `TO_EMAIL`
+  - iFinD：`IFIND_USERNAME`, `IFIND_PASSWORD`, `IFIND_ENABLED`(默认true), `IFIND_PREFER`(默认true)
 - 数据缓存在 `cache/` 目录，7天过期自动失效
 - MA60趋势检测通过腾讯K线API获取沪深300指数数据
+- iFinD SDK 未安装/未配置时，所有模块自动回退到腾讯+akshare免费方案，不会报错中断

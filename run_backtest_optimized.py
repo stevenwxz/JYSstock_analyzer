@@ -732,8 +732,8 @@ def plot_backtest_results(results, daily_navs=None, trading_days=None, benchmark
     fig.autofmt_xdate(rotation=30)
 
     plt.tight_layout()
-    os.makedirs('./reports/charts', exist_ok=True)
-    out_path = './reports/charts/backtest_curve.png'
+    os.makedirs('./charts', exist_ok=True)
+    out_path = './charts/backtest_curve.png'
     plt.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"\n净值曲线已保存: {out_path}")

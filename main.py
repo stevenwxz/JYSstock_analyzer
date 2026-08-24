@@ -111,16 +111,33 @@ def main():
                     print(f"   20日动量: {stock.get('momentum_20d', 0):.2f}%")
                     print(f"   强势分数: {stock.get('strength_score', 0):.1f}")
                     
-                    # 显示分项得分
+                    # 显示分项得分（根据评分模式显示不同的字段）
                     score_detail = stock.get('strength_score_detail', {})
                     if score_detail:
                         breakdown = score_detail.get('breakdown', {})
-                        print(f"   分项得分:")
-                        print(f"     - 技术面: {breakdown.get('technical', 0)}分")
-                        print(f"     - 估值: {breakdown.get('valuation', 0)}分")
-                        print(f"     - 盈利能力: {breakdown.get('profitability', 0)}分")
-                        print(f"     - 安全性: {breakdown.get('safety', 0)}分")
-                        print(f"     - 股息: {breakdown.get('dividend', 0)}分")
+                        mode = score_detail.get('mode', 'basic')
+                        print(f"   分项得分（{mode}模式）:")
+                        if mode == 'defensive':
+                            safety = breakdown.get('low_volatility', 0) + breakdown.get('small_drawdown', 0)
+                            print(f"     - 安全性  : {safety}分")
+                            print(f"     - 低PB    : {breakdown.get('low_pb', 0)}分")
+                            print(f"     - 高ROE   : {breakdown.get('high_roe', 0)}分")
+                            print(f"     - 动量加分: {breakdown.get('momentum_bonus', 0)}分")
+                        elif mode == 'offensive':
+                            print(f"     - 技术面  : {breakdown.get('technical', 0)}分")
+                            print(f"     - 估值    : {breakdown.get('valuation', 0)}分")
+                            print(f"     - 盈利能力: {breakdown.get('profitability', 0)}分")
+                            print(f"     - 安全性  : {breakdown.get('safety', 0)}分")
+                            print(f"     - 股息    : {breakdown.get('dividend', 0)}分")
+                            total_bonus = breakdown.get('momentum_bonus', 0) + breakdown.get('growth_bonus', 0)
+                            if total_bonus:
+                                print(f"     - 进攻加分: +{total_bonus}分（动量{breakdown.get('momentum_bonus',0)}+成长{breakdown.get('growth_bonus',0)}）")
+                        else:
+                            print(f"     - 技术面  : {breakdown.get('technical', 0)}分")
+                            print(f"     - 估值    : {breakdown.get('valuation', 0)}分")
+                            print(f"     - 盈利能力: {breakdown.get('profitability', 0)}分")
+                            print(f"     - 安全性  : {breakdown.get('safety', 0)}分")
+                            print(f"     - 股息    : {breakdown.get('dividend', 0)}分")
                         print(f"   评级: {score_detail.get('grade', '')}")
                     
                     print(f"   理由: {stock.get('selection_reason', '')}")

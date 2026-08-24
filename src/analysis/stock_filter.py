@@ -26,7 +26,7 @@ class StockFilter:
             return 0
 
     def calculate_strength_score(self, stock_data: Dict) -> Dict:
-        """计算股票强势分数"""
+        """计算股票强势分数（基础模式）"""
         score_breakdown = {
             'technical': 0,    # 技术面 (30分): 动量25 + 换手率5
             'valuation': 0,    # 估值 (25分): PE10 + PB5 + PR10
@@ -146,12 +146,13 @@ class StockFilter:
 
         except Exception as e:
             logger.error(f"计算强势分数失败: {e}")
-            return {'total': 0, 'breakdown': score_breakdown, 'grade': 'D'}
+            return {'mode': 'basic', 'total': 0, 'breakdown': score_breakdown, 'grade': 'D'}
 
         total_score = sum(score_breakdown.values())
         grade = self._get_grade(total_score)
 
         return {
+            'mode': 'basic',
             'total': total_score,
             'breakdown': score_breakdown,
             'grade': grade
@@ -317,31 +318,50 @@ class StockFilter:
             return []
 
     def calculate_offensive_score(self, stock_data: Dict) -> Dict:
-        """进攻模式评分：取消过热惩罚 + 高动量加分"""
+        """进攻模式评分：取消过热惩罚 + 高动量加分 + 成长加分"""
         base_result = self.calculate_strength_score(stock_data)
         base_score = base_result['total']
+        base_breakdown = dict(base_result['breakdown'])
 
         momentum = stock_data.get('momentum_20d', 0)
-        bonus = 0
+        bonus_momentum = 0
         if momentum > 15:
-            bonus += 12
+            bonus_momentum += 12
         elif momentum > 10:
-            bonus += 8
+            bonus_momentum += 8
         elif momentum > 5:
-            bonus += 4
+            bonus_momentum += 4
 
+        bonus_growth = 0
         growth = stock_data.get('profit_growth')
         if growth and growth > 30:
-            bonus += 5
+            bonus_growth += 5
 
-        total = base_score + bonus
+        offensive_breakdown = dict(base_breakdown)
+        offensive_breakdown['momentum_bonus'] = bonus_momentum
+        offensive_breakdown['growth_bonus'] = bonus_growth
+
+        total = base_score + bonus_momentum + bonus_growth
         grade = self._get_grade(total)
-        return {'total': total, 'breakdown': base_result['breakdown'], 'grade': grade, 'bonus': bonus}
+        return {
+            'mode': 'offensive',
+            'total': total,
+            'breakdown': offensive_breakdown,
+            'grade': grade,
+            'bonus': bonus_momentum + bonus_growth,
+        }
 
     def calculate_ultra_defensive_score(self, stock_data: Dict) -> Dict:
-        """超防守评分：极低波动+低PB+高ROE+小回撤"""
-        score = 0
-        breakdown = {'low_volatility': 0, 'low_pb': 0, 'high_roe': 0, 'small_drawdown': 0, 'momentum_bonus': 0}
+        """超防守评分：低波动(30) + 低PB(25) + 高ROE(25) + 小回撤(20) + 动量加分(5)
+        返回结构同时含「防守特有key」和「标准显示key」，兼容已有展示逻辑。
+        """
+        defensive = {
+            'low_volatility': 0,   # 防守模式特有：低波动（满分30）
+            'low_pb': 0,           # 防守模式特有：低PB（满分25）
+            'high_roe': 0,         # 防守模式特有：高ROE（满分25）
+            'small_drawdown': 0,   # 防守模式特有：小回撤（满分20）
+            'momentum_bonus': 0,   # 防守模式特有：温和向上加分（满分5）
+        }
 
         volatility = stock_data.get('volatility_20d', 0)
         pb = stock_data.get('pb_ratio')
@@ -349,44 +369,73 @@ class StockFilter:
         max_dd = stock_data.get('max_drawdown_20d', 0)
         momentum = stock_data.get('momentum_20d', 0)
 
-        if volatility < 1.0:
-            breakdown['low_volatility'] = 30
-        elif volatility < 1.5:
-            breakdown['low_volatility'] = 25
-        elif volatility < 2.0:
-            breakdown['low_volatility'] = 18
-        elif volatility < 2.5:
-            breakdown['low_volatility'] = 10
+        if volatility and volatility < 1.0:
+            defensive['low_volatility'] = 30
+        elif volatility and volatility < 1.5:
+            defensive['low_volatility'] = 25
+        elif volatility and volatility < 2.0:
+            defensive['low_volatility'] = 18
+        elif volatility and volatility < 2.5:
+            defensive['low_volatility'] = 10
 
         if pb and 0 < pb < 0.8:
-            breakdown['low_pb'] = 25
+            defensive['low_pb'] = 25
         elif pb and 0.8 <= pb < 1.2:
-            breakdown['low_pb'] = 20
+            defensive['low_pb'] = 20
         elif pb and 1.2 <= pb < 2.0:
-            breakdown['low_pb'] = 12
+            defensive['low_pb'] = 12
         elif pb and 2.0 <= pb < 3.0:
-            breakdown['low_pb'] = 5
+            defensive['low_pb'] = 5
 
         if roe and roe > 15:
-            breakdown['high_roe'] = 25
+            defensive['high_roe'] = 25
         elif roe and roe > 10:
-            breakdown['high_roe'] = 18
+            defensive['high_roe'] = 18
         elif roe and roe > 7:
-            breakdown['high_roe'] = 10
+            defensive['high_roe'] = 10
 
-        if max_dd > -3:
-            breakdown['small_drawdown'] = 20
-        elif max_dd > -5:
-            breakdown['small_drawdown'] = 14
-        elif max_dd > -8:
-            breakdown['small_drawdown'] = 7
+        if max_dd and max_dd > -3:
+            defensive['small_drawdown'] = 20
+        elif max_dd and max_dd > -5:
+            defensive['small_drawdown'] = 14
+        elif max_dd and max_dd > -8:
+            defensive['small_drawdown'] = 7
 
         if 0 < momentum <= 5:
-            breakdown['momentum_bonus'] = 5
+            defensive['momentum_bonus'] = 5
 
-        score = sum(breakdown.values())
-        grade = self._get_grade(score)
-        return {'total': score, 'breakdown': breakdown, 'grade': grade}
+        # === 映射到标准显示 key（技术面/估值/盈利/安全/股息），兼容报告输出 ===
+        pe = stock_data.get('pe_ratio', 0)
+        turnover = stock_data.get('turnover_rate', 0)
+        dividend = stock_data.get('dividend_yield', 0)
+        standard = {
+            'technical': defensive['momentum_bonus'],
+            'valuation': defensive['low_pb'],
+            'profitability': defensive['high_roe'],
+            'safety': defensive['low_volatility'] + defensive['small_drawdown'],
+            'dividend': 0,
+        }
+        if dividend and dividend > 5:
+            standard['dividend'] = 5
+        elif dividend and dividend > 3:
+            standard['dividend'] = 4
+        elif dividend and dividend > 2:
+            standard['dividend'] = 3
+        elif dividend and dividend > 1:
+            standard['dividend'] = 2
+        elif dividend and dividend > 0.5:
+            standard['dividend'] = 1
+
+        breakdown = {**defensive, **standard}
+
+        total = sum(defensive.values())
+        grade = self._get_grade(total)
+        return {
+            'mode': 'defensive',
+            'total': total,
+            'breakdown': breakdown,
+            'grade': grade,
+        }
 
     def select_top_stocks_offensive(self, stocks_data: List[Dict]) -> List[Dict]:
         """进攻模式选股：PE<30 + ROE>0 + 进攻评分 + 取前N"""

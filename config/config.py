@@ -44,3 +44,14 @@ LOG_CONFIG = {
     'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     'file': './logs/stock_analyzer.log'
 }
+
+# 同花顺 iFinD 数据源配置
+IFIND_CONFIG = {
+    'enabled': os.getenv('IFIND_ENABLED', 'true').lower() == 'true',
+    'username': os.getenv('IFIND_USERNAME', ''),
+    'password': os.getenv('IFIND_PASSWORD', ''),
+    'prefer_ifind': os.getenv('IFIND_PREFER', 'true').lower() == 'true',
+    'auto_fallback': True,
+    'retry_times': 2,
+    'concurrent_limit': 50,
+}

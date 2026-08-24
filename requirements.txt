@@ -4,3 +4,11 @@ numpy>=1.24.0
 requests>=2.31.0
 schedule>=1.2.0
 python-dotenv>=1.0.0
+
+# ===== 可选专业数据源：同花顺 iFinD SDK =====
+# 安装方法（非 pip 安装）：
+#   1. 从 https://quantapi.10jqka.com.cn 下载 Windows SDK 安装包
+#   2. 解压后运行 SuperCommand.exe → 工具 → 环境设置 → 选择本项目 Python 环境并修复
+#   3. 修复成功后 Lib/site-packages/iFinDPy.pth 会自动生成
+#   4. 在 .env 中配置 IFIND_USERNAME / IFIND_PASSWORD
+# 配置后系统会自动优先使用 iFinD 专业数据，未配置时回退到腾讯API+akshare

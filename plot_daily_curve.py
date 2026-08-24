@@ -535,8 +535,8 @@ ax.xaxis.set_major_formatter(DateFormatter('%Y-%m'))
 fig.autofmt_xdate(rotation=30)
 
 plt.tight_layout()
-out_path = './reports/charts/daily_curve.png'
-os.makedirs('./reports/charts', exist_ok=True)
+out_path = './charts/daily_curve.png'
+os.makedirs('./charts', exist_ok=True)
 plt.savefig(out_path, dpi=150, bbox_inches='tight')
 print(f"\n图表已保存: {out_path}")
 print(f"数据点数: {len(trading_days)}个交易日")

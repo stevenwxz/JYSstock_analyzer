@@ -40,15 +40,70 @@ def generate_markdown_report(json_file):
         ]
         total_analyzed = data.get('sample_size', 300)
         config = data.get('filter_config', {})
+        scoring_mode = 'basic'
     else:
         analysis_date = data['analysis_date']
         selected_stocks = data.get('selected_stocks', [])
         total_analyzed = data.get('total_analyzed', 300)
         config = data.get('selection_criteria', {})
+        scoring_mode = data.get('scoring_mode', 'defensive')
     
     # 转换日期格式
     date_obj = datetime.strptime(analysis_date, '%Y-%m-%d')
     date_cn = date_obj.strftime('%Y年%m月%d日')
+    
+    # 根据评分模式确定展示字段
+    mode_cn = {
+        'basic': '基础评分',
+        'offensive': '进攻评分',
+        'defensive': '防守评分',
+    }.get(scoring_mode, '')
+    
+    if scoring_mode == 'defensive':
+        table_headers = ['安全性', '低PB', '高ROE', '动量加分']
+        table_keys = ['safety', 'low_pb', 'high_roe', 'momentum_bonus']
+        detail_headers = [
+            ('安全性得分', 'safety'),
+            ('低PB得分', 'low_pb'),
+            ('高ROE得分', 'high_roe'),
+            ('动量加分', 'momentum_bonus'),
+        ]
+        dimension_map = {
+            'safety': '安全性',
+            'low_pb': '低PB',
+            'high_roe': '高ROE',
+            'momentum_bonus': '动量加分',
+            'technical': '技术面',
+            'valuation': '估值',
+            'profitability': '盈利能力',
+            'dividend': '股息',
+        }
+        # 动态计算 safety = low_volatility + small_drawdown
+        def _map_defensive(bd):
+            bd2 = dict(bd)
+            bd2['safety'] = bd2.get('low_volatility', 0) + bd2.get('small_drawdown', 0)
+            return bd2
+    else:
+        table_headers = ['技术面', '估值', '盈利', '安全', '股息']
+        table_keys = ['technical', 'valuation', 'profitability', 'safety', 'dividend']
+        detail_headers = [
+            ('技术面得分', 'technical'),
+            ('估值得分', 'valuation'),
+            ('盈利能力得分', 'profitability'),
+            ('安全性得分', 'safety'),
+            ('股息得分', 'dividend'),
+        ]
+        dimension_map = {
+            'technical': '技术面',
+            'valuation': '估值',
+            'profitability': '盈利能力',
+            'safety': '安全性',
+            'dividend': '股息',
+            'momentum_bonus': '动量加分',
+            'growth_bonus': '成长加分',
+        }
+        def _map_defensive(bd):
+            return bd
     
     # 生成Markdown内容
     md_content = f"""# 📊 {date_cn}沪深300成分股分析结果
@@ -61,54 +116,64 @@ def generate_markdown_report(json_file):
 - **数据源**: {'历史回测数据' if is_backtest else '实时数据'}
 - **股票池**: 沪深300成分股
 - **目标股票数**: {total_analyzed}只
+- **评分模式**: {mode_cn + ' ' if mode_cn else ''}
 - **筛选条件**: PE ≤ {config.get('max_pe_ratio', 30)}, 换手率 ≥ {config.get('min_turnover_rate', 1.0)}%
 
 ## 🏆 **Top {len(selected_stocks)} 精选股票**
 
 """
     
-    # 添加每只股票的详细信息
+    # 添加每只股票的详细信息（含分项得分）
     for stock in selected_stocks:
         trend = "↗" if stock.get('change_pct', 0) > 0 else "↘" if stock.get('change_pct', 0) < 0 else "→"
+        score_detail = stock.get('strength_score_detail', {})
+        breakdown = _map_defensive(score_detail.get('breakdown', {}))
+        details_md = "".join(
+            f"- **{label}**: {breakdown.get(key, 0)}分\n"
+            for label, key in detail_headers
+        )
         md_content += f"""### #{stock['rank']} {stock['name']} ({stock['code']}) [{trend}]
 - **价格**: ¥{stock['price']:.2f}
 - **涨跌幅**: {stock.get('change_pct', 0):+.2f}%
 - **PE**: {stock['pe_ratio']:.2f}倍
 - **强势分数**: {stock.get('strength_score', 0):.0f}分
+{details_md}
 - **选择理由**: {stock.get('selection_reason', '符合筛选条件')}
 
 """
     
     # 添加候选股票表格
-    md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票**
+    table_cols = ' | '.join(['排名', '股票名称', '代码', '股价', 'PB', 'PE', 'PR', 'ROE', '20日动量', '评分', '评级'] + table_headers)
+    table_sep = ' | '.join(['------'] * (11 + len(table_headers)))
+    md_content += f"""## 📋 **Top {len(selected_stocks)} 候选股票
 
-| 排名 | 股票名称 | 代码 | 股价 | PB | PE | PR | ROE | 20日动量 | 评分 | 评级 | 技术面 | 估值 | 盈利 | 安全 | 股息 |
-|------|----------|------|------|------|------|------|-------|---------|-----|------|--------|------|------|------|------|
+| {table_cols} |
+|------|----------|------|------|------|------|------|-------|---------|-----|------|{'|'.join([h for _ in range(len(table_headers)))} |
+|{table_sep}|
 """
     
     for stock in selected_stocks:
-        # 获取分项得分
         score_detail = stock.get('strength_score_detail', {})
-        breakdown = score_detail.get('breakdown', {})
-        tech_score = breakdown.get('technical', 0)
-        val_score = breakdown.get('valuation', 0)
-        prof_score = breakdown.get('profitability', 0)
-        safe_score = breakdown.get('safety', 0)
-        div_score = breakdown.get('dividend', 0)
+        breakdown = _map_defensive(score_detail.get('breakdown', {}))
+        col_scores = [str(breakdown.get(k, 0)) for k in table_keys]
         grade = score_detail.get('grade', '-')
         roe = stock.get('roe', 0)
         roe_display = f"{roe:.1f}%" if roe else "-"
         price = stock.get('price', 0)
         pb = stock.get('pb_ratio', 0)
-        # 计算PR（市赚率）
         pe_ratio = stock.get('pe_ratio', 0)
-        roe_decimal = roe / 100 if roe > 0 else 0  # ROE是百分比形式，需要转换为小数
+        roe_decimal = roe / 100 if roe > 0 else 0
         pr_display = "-"
         if pe_ratio > 0 and roe_decimal > 0:
             pr = pe_ratio / (100 * roe_decimal)
             pr_display = f"{pr:.2f}"
         momentum_20d = stock.get('momentum_20d', 0)
-        md_content += f"|  {stock['rank']} | {stock['name']} | {stock['code']} | {price:.2f} | {pb:.2f} | {stock['pe_ratio']:.2f} | {pr_display} | {roe_display} | {momentum_20d:+.2f}% | {stock.get('strength_score', 0):.0f} | {grade} | {tech_score} | {val_score} | {prof_score} | {safe_score} | {div_score} |\n"
+        cols = [
+            f" {stock['rank']}", stock['name'], stock['code'], f"{price:.2f}",
+            f"{pb:.2f}", f"{stock['pe_ratio']:.2f}", pr_display, roe_display,
+            f"{momentum_20d:+.2f}%", f"{stock.get('strength_score', 0):.0f}", grade
+        ] + col_scores
+        md_content += f"| {' | '.join(cols)} |\n"
     
     # 添加筛选统计
     md_content += f"""
@@ -131,23 +196,18 @@ def generate_markdown_report(json_file):
 """
     
     for stock in selected_stocks:
-        # 计算优势维度(得分最高的维度)
         score_detail = stock.get('strength_score_detail', {})
-        breakdown = score_detail.get('breakdown', {})
+        breakdown = _map_defensive(score_detail.get('breakdown', {}))
 
-        # 维度名称映射
-        dimension_names = {
-            'technical': '技术面',
-            'valuation': '估值',
-            'profitability': '盈利能力',
-            'safety': '安全性',
-            'dividend': '股息'
-        }
-
-        # 找出得分最高的维度
+        # 找出得分最高的维度（从当前模式的主要字段中找）
         if breakdown:
-            max_dimension = max(breakdown.items(), key=lambda x: x[1])
-            advantage_dim = f"{dimension_names.get(max_dimension[0], max_dimension[0])} ({max_dimension[1]}分)"
+            mode_keys = table_keys + ['momentum_bonus', 'growth_bonus']
+            valid_items = [(k, v) for k, v in breakdown.items() if k in mode_keys and isinstance(v, (int, float))]
+            if valid_items:
+                max_key, max_val = max(valid_items, key=lambda x: x[1])
+                advantage_dim = f"{dimension_map.get(max_key, max_key)} ({max_val}分)"
+            else:
+                advantage_dim = "符合多维度筛选标准"
         else:
             advantage_dim = "符合多维度筛选标准"
 

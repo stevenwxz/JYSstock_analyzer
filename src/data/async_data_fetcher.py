@@ -182,7 +182,8 @@ class AsyncStockDataFetcher:
                             'total_shares': total_shares,
                             'volume': volume,
                             'turnover': turnover,
-                            'turnover_rate': turnover_rate
+                            'turnover_rate': turnover_rate,
+                            'data_source': 'tencent'
                         }
 
             except Exception as e:
