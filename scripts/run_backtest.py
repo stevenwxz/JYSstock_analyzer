@@ -476,8 +476,8 @@ def run_backtest():
     trading_days = all_trading_days[mask].tolist()
     logger.info(f"交易日数: {len(trading_days)}")
 
-    # 4. 回测循环（逐日模拟：月度调仓+MA60±2%缓冲带+-5%止损）
-    stop_loss_pct = -0.05
+    # 4. 回测循环（逐日模拟：月度调仓+MA60±2%缓冲带+-7%止损）
+    stop_loss_pct = -0.07
     cost = cost_buy + cost_sell
     results = []
     daily_navs = []
@@ -488,6 +488,7 @@ def run_backtest():
     last_rebal_month = None
     rebal_start_idx = 0
     bull_mode = False  # 缓冲带内维持上一次模式
+    was_bull = False
 
     i = 0
     while i < len(trading_days):
@@ -496,7 +497,7 @@ def run_backtest():
 
         if is_rebal_day:
             # 调仓日：先结算旧持仓
-            if last_rebal_month is not None and holdings:
+            if last_rebal_month is not None and (holdings or stopped):
                 port_return = 0
                 for code, buy_price, weight in holdings:
                     if code in daily_data and today in daily_data[code].index:
@@ -505,7 +506,10 @@ def run_backtest():
                         port_return += weight * ret
                 cash_return = sum(stopped.values())
                 period_ret = port_return + cash_return
-                nav_base = nav_base * (1 + period_ret) * (1 - cost)
+                # 只对存活持仓收调仓成本，止损仓位已卖出不再收费
+                active_weight = sum(w for _, _, w in holdings)
+                rebal_cost = cost * active_weight if active_weight > 0 else 0
+                nav_base = nav_base * (1 + period_ret) * (1 - rebal_cost)
 
                 buy_date_str = trading_days[rebal_start_idx].strftime('%Y-%m-%d')
                 sell_date_str = today.strftime('%Y-%m-%d')
@@ -513,7 +517,17 @@ def run_backtest():
                 bd = trading_days[rebal_start_idx]
                 if bd in benchmark.index and today in benchmark.index:
                     bench_ret = (benchmark.loc[today]['close'] / benchmark.loc[bd]['close'] - 1) * 100
-                strat_ret_pct = ((1 + period_ret) * (1 - cost) - 1) * 100
+                strat_ret_pct = ((1 + period_ret) * (1 - rebal_cost) - 1) * 100
+                # 逐只归因
+                contribs = []
+                for code, buy_price, weight in holdings:
+                    if code in daily_data and today in daily_data[code].index:
+                        cp = float(daily_data[code].loc[today]['收盘'])
+                        contribs.append({'code': code, 'pnl': (cp/buy_price-1)*weight*100})
+                for code, locked in stopped.items():
+                    contribs.append({'code': code+'*', 'pnl': locked*100})
+                contribs.sort(key=lambda x: x['pnl'], reverse=True)
+
                 results.append({
                     'buy_date': buy_date_str,
                     'sell_date': sell_date_str,
@@ -524,6 +538,8 @@ def run_backtest():
                     'win_count': sum(1 for c, bp, w in holdings
                                      if c in daily_data and today in daily_data[c].index
                                      and float(daily_data[c].loc[today]['收盘']) / bp - 1 > 0),
+                    'mode': '进攻' if was_bull else '防守',
+                    'contribs': contribs,
                 })
 
             # MA60 ±2%缓冲带趋势判断（与实盘market_analyzer一致）
@@ -549,6 +565,7 @@ def run_backtest():
             else:
                 selected = select_stocks_ultra_defensive(all_stocks)
 
+            was_bull = bull_mode
             holdings = []
             stopped = {}
             if selected:
@@ -571,7 +588,7 @@ def run_backtest():
                         cur_price = float(daily_data[code].loc[today]['收盘'])
                         ret = cur_price / buy_price - 1
                         if ret < stop_loss_pct:
-                            stopped[code] = weight * (ret - cost)
+                            stopped[code] = weight * ret
                         else:
                             port_return += weight * ret
                             new_holdings.append((code, buy_price, weight))
@@ -583,9 +600,54 @@ def run_backtest():
 
         i += 1
 
+    # 结算最后一期未了结的持仓
+    if holdings or stopped:
+        last_day = trading_days[-1]
+        port_return = 0
+        for code, buy_price, weight in holdings:
+            if code in daily_data and last_day in daily_data[code].index:
+                cur_price = float(daily_data[code].loc[last_day]['收盘'])
+                port_return += weight * (cur_price / buy_price - 1)
+        cash_return = sum(stopped.values())
+        period_ret = port_return + cash_return
+        active_weight = sum(w for _, _, w in holdings)
+        rebal_cost = cost * active_weight if active_weight > 0 else 0
+        nav_base = nav_base * (1 + period_ret) * (1 - rebal_cost)
+
+        buy_date_str = trading_days[rebal_start_idx].strftime('%Y-%m-%d')
+        sell_date_str = last_day.strftime('%Y-%m-%d')
+        bench_ret = 0
+        bd = trading_days[rebal_start_idx]
+        if bd in benchmark.index and last_day in benchmark.index:
+            bench_ret = (benchmark.loc[last_day]['close'] / benchmark.loc[bd]['close'] - 1) * 100
+        strat_ret_pct = ((1 + period_ret) * (1 - rebal_cost) - 1) * 100
+        contribs = []
+        for code, buy_price, weight in holdings:
+            if code in daily_data and last_day in daily_data[code].index:
+                cp = float(daily_data[code].loc[last_day]['收盘'])
+                contribs.append({'code': code, 'pnl': (cp/buy_price-1)*weight*100})
+        for code, locked in stopped.items():
+            contribs.append({'code': code+'*', 'pnl': locked*100})
+        contribs.sort(key=lambda x: x['pnl'], reverse=True)
+        results.append({
+            'buy_date': buy_date_str,
+            'sell_date': sell_date_str,
+            'strategy_return': strat_ret_pct,
+            'benchmark_return': bench_ret,
+            'excess_return': strat_ret_pct - bench_ret,
+            'num_stocks': len(holdings) + len(stopped),
+            'win_count': sum(1 for c, bp, w in holdings
+                             if c in daily_data and last_day in daily_data[c].index
+                             and float(daily_data[c].loc[last_day]['收盘']) / bp - 1 > 0),
+            'mode': '进攻' if was_bull else '防守',
+            'contribs': contribs,
+        })
+        daily_navs[-1] = nav_base
+
     # 5. 输出结果
     print_results(results, daily_navs, benchmark)
     plot_backtest_results(results, daily_navs, trading_days, benchmark)
+    generate_html_report(results, daily_navs, trading_days, benchmark)
 
 
 # === PLACEHOLDER_PRINT ===
@@ -599,10 +661,13 @@ def print_results(results, daily_navs=None, benchmark=None):
 
     strat_returns = [r['strategy_return'] for r in results]
 
-    # 策略累计收益（复利）
-    cum_strat = 1.0
-    for r in results:
-        cum_strat *= (1 + r['strategy_return'] / 100)
+    # 策略累计收益：优先用逐日净值（最准确）
+    if daily_navs and len(daily_navs) > 1:
+        cum_strat = daily_navs[-1]
+    else:
+        cum_strat = 1.0
+        for r in results:
+            cum_strat *= (1 + r['strategy_return'] / 100)
 
     # 基准累计收益：直接用起止日收盘价（避免空仓期漏算）
     cum_bench = 1.0
@@ -745,6 +810,211 @@ def plot_backtest_results(results, daily_navs=None, trading_days=None, benchmark
     plt.close()
     print(f"\n净值曲线已保存: {out_path}")
 
+
+def generate_html_report(results, daily_navs, trading_days, benchmark):
+    """生成图文并茂的HTML回测报告"""
+    import base64, json as _json
+    from io import BytesIO
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.dates import DateFormatter, MonthLocator
+
+    # 股票代码→名称映射
+    _name_map = {}
+    try:
+        with open('./data/csi300_stocks.json', 'r', encoding='utf-8') as _f:
+            for s in _json.load(_f)['stocks']:
+                _name_map[s['code']] = s['name']
+    except Exception:
+        pass
+
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
+    plt.rcParams['axes.unicode_minus'] = False
+
+    if not results or not daily_navs:
+        return
+
+    # === KPI 计算 ===
+    cum_strat = daily_navs[-1]
+
+    start_dt = datetime.strptime(results[0]['buy_date'], '%Y-%m-%d')
+    end_dt = datetime.strptime(results[-1]['sell_date'], '%Y-%m-%d')
+    bm_dates = benchmark.index
+    bm_start = bm_dates[bm_dates >= start_dt][0]
+    bm_end = bm_dates[bm_dates <= end_dt][-1]
+    cum_bench = float(benchmark.loc[bm_end]['close']) / float(
+        benchmark.loc[bm_start]['close'])
+
+    peak = daily_navs[0]
+    max_dd = 0
+    for v in daily_navs:
+        peak = max(peak, v)
+        max_dd = max(max_dd, (peak - v) / peak)
+
+    total_wins = sum(r['win_count'] for r in results)
+    total_trades = sum(r['num_stocks'] for r in results)
+    win_rate = total_wins / total_trades * 100 if total_trades else 0
+
+    years = (end_dt - start_dt).days / 365.25
+    ann_ret = (cum_strat ** (1/years) - 1) * 100 if years > 0 else 0
+
+    # === 图1: 净值曲线 ===
+    def chart_to_base64(fig):
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=130, bbox_inches='tight')
+        plt.close(fig)
+        buf.seek(0)
+        return base64.b64encode(buf.read()).decode()
+
+    dates = [d.to_pydatetime() if hasattr(d, 'to_pydatetime')
+             else d for d in trading_days]
+
+    base_price = float(benchmark.loc[trading_days[0]]['close']) if trading_days[0] in benchmark.index else 1
+    bench_curve = []
+    for d in trading_days:
+        if d in benchmark.index:
+            bench_curve.append((float(benchmark.loc[d]['close']) / base_price - 1) * 100)
+        else:
+            bench_curve.append(bench_curve[-1] if bench_curve else 0)
+    strat_curve = [(v - 1) * 100 for v in daily_navs]
+
+    fig1, ax1 = plt.subplots(figsize=(12, 5))
+    ax1.plot(dates, strat_curve, color='#E63946', linewidth=2,
+             label=f'策略 {strat_curve[-1]:+.1f}%')
+    ax1.plot(dates, bench_curve, color='#6C757D', linewidth=1.5,
+             linestyle='--', label=f'沪深300 {bench_curve[-1]:+.1f}%')
+    ax1.axhline(y=0, color='black', linewidth=0.5, alpha=0.3)
+    ax1.legend(loc='upper left', fontsize=10)
+    ax1.set_ylabel('累计收益率 (%)')
+    ax1.set_title('净值曲线')
+    ax1.grid(True, alpha=0.3)
+    ax1.xaxis.set_major_formatter(DateFormatter('%Y-%m'))
+    fig1.autofmt_xdate(rotation=30)
+    fig1.tight_layout()
+    img_nav = chart_to_base64(fig1)
+
+    # === 图2: 月度收益柱状图 ===
+    fig2, ax2 = plt.subplots(figsize=(12, 4))
+    months = [r['buy_date'][:7] for r in results]
+    s_rets = [r['strategy_return'] for r in results]
+    b_rets = [r['benchmark_return'] for r in results]
+    x = np.arange(len(months))
+    w = 0.35
+    ax2.bar(x - w/2, s_rets, w, label='策略', color='#E63946', alpha=0.8)
+    ax2.bar(x + w/2, b_rets, w, label='沪深300', color='#6C757D', alpha=0.6)
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(months, rotation=45, ha='right', fontsize=8)
+    ax2.axhline(y=0, color='black', linewidth=0.5)
+    ax2.legend(fontsize=9)
+    ax2.set_ylabel('收益率 (%)')
+    ax2.set_title('月度收益对比')
+    ax2.grid(True, alpha=0.2, axis='y')
+    fig2.tight_layout()
+    img_monthly = chart_to_base64(fig2)
+
+    # === 构建月度明细表 HTML ===
+    rows_html = ''
+    for r in results:
+        mode_cls = 'offensive' if r['mode'] == '进攻' else 'defensive'
+        ret_cls = 'pos' if r['strategy_return'] > 0 else 'neg'
+        exc_cls = 'pos' if r['excess_return'] > 0 else 'neg'
+        contrib_strs = []
+        for c in r.get('contribs', [])[:6]:
+            sign = 'pos' if c['pnl'] > 0 else 'neg'
+            raw_code = c['code'].rstrip('*')
+            name = _name_map.get(raw_code, raw_code)
+            sl = '止损' if c['code'].endswith('*') else ''
+            contrib_strs.append(
+                f"<span class='{sign}'>{name}{sl}({c['pnl']:+.1f}%)</span>")
+        rows_html += f"""<tr>
+<td>{r['buy_date']}</td><td>{r['sell_date']}</td>
+<td class='{mode_cls}'>{r['mode']}</td>
+<td class='{ret_cls}'>{r['strategy_return']:+.2f}%</td>
+<td>{r['benchmark_return']:+.2f}%</td>
+<td class='{exc_cls}'>{r['excess_return']:+.2f}%</td>
+<td>{r['num_stocks']}</td>
+<td class='contribs'>{' '.join(contrib_strs)}</td>
+</tr>\n"""
+
+    # === HTML模板 ===
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>回测报告 {results[0]['buy_date']} ~ {results[-1]['sell_date']}</title>
+<style>
+body {{ font-family: -apple-system, 'Microsoft YaHei', sans-serif;
+       max-width: 1200px; margin: 0 auto; padding: 20px; background: #f8f9fa; }}
+h1 {{ color: #1a1a2e; border-bottom: 2px solid #E63946; padding-bottom: 10px; }}
+h2 {{ color: #16213e; margin-top: 30px; }}
+.kpi-grid {{ display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 15px; margin: 20px 0; }}
+.kpi {{ background: white; border-radius: 8px; padding: 20px;
+       box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }}
+.kpi .value {{ font-size: 24px; font-weight: bold; margin: 5px 0; }}
+.kpi .label {{ font-size: 12px; color: #666; }}
+.pos {{ color: #E63946; }} .neg {{ color: #2A9D8F; }}
+.offensive {{ color: #E63946; font-weight: bold; }}
+.defensive {{ color: #457B9D; font-weight: bold; }}
+table {{ width: 100%; border-collapse: collapse; background: white;
+        border-radius: 8px; overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+th {{ background: #1a1a2e; color: white; padding: 10px 8px;
+     font-size: 13px; }}
+td {{ padding: 8px; border-bottom: 1px solid #eee; font-size: 12px;
+     text-align: center; }}
+tr:hover {{ background: #f5f5f5; }}
+.contribs {{ text-align: left; font-size: 11px; }}
+img {{ width: 100%; border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin: 10px 0; }}
+.footer {{ text-align: center; color: #999; margin-top: 30px;
+          font-size: 12px; }}
+</style></head><body>
+<h1>MA60趋势择时策略 回测报告</h1>
+<p>回测区间: {results[0]['buy_date']} ~ {results[-1]['sell_date']} |
+   调仓周期: 月度 | 止损: -7%</p>"""
+
+    html += f"""
+<div class="kpi-grid">
+<div class="kpi"><div class="label">策略累计收益</div>
+  <div class="value pos">{(cum_strat-1)*100:+.1f}%</div></div>
+<div class="kpi"><div class="label">年化收益</div>
+  <div class="value">{ann_ret:+.1f}%</div></div>
+<div class="kpi"><div class="label">最大回撤</div>
+  <div class="value neg">{max_dd*100:.1f}%</div></div>
+<div class="kpi"><div class="label">胜率</div>
+  <div class="value">{win_rate:.0f}%</div></div>
+<div class="kpi"><div class="label">基准收益(沪深300)</div>
+  <div class="value">{(cum_bench-1)*100:+.1f}%</div></div>
+<div class="kpi"><div class="label">超额收益</div>
+  <div class="value pos">{(cum_strat-cum_bench)*100:+.1f}%</div></div>
+<div class="kpi"><div class="label">调仓次数</div>
+  <div class="value">{len(results)}</div></div>
+<div class="kpi"><div class="label">总交易笔数</div>
+  <div class="value">{total_trades}</div></div>
+</div>
+
+<h2>净值曲线</h2>
+<img src="data:image/png;base64,{img_nav}">
+
+<h2>月度收益对比</h2>
+<img src="data:image/png;base64,{img_monthly}">
+
+<h2>月度持仓明细与归因</h2>
+<table>
+<tr><th>买入</th><th>卖出</th><th>模式</th><th>策略</th>
+<th>基准</th><th>超额</th><th>持仓</th><th>逐只归因</th></tr>
+{rows_html}
+</table>
+
+<div class="footer">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+</body></html>"""
+
+    os.makedirs('./reports/backtest', exist_ok=True)
+    out_path = f'./reports/backtest/backtest_{results[0]["buy_date"]}_{results[-1]["sell_date"]}.html'
+    with open(out_path, 'w', encoding='utf-8') as f:
+        f.write(html)
+    print(f"回测报告已生成: {out_path}")
+    return out_path
 
 if __name__ == '__main__':
     run_backtest()

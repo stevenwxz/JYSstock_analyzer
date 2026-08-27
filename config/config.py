@@ -20,7 +20,7 @@ STOCK_FILTER_CONFIG = {
     'min_price': 1.0,
     'max_stocks': 6,           # 持仓6只
     'min_strength_score': 35,  # 最低评分35
-    'stop_loss_pct': -0.05,    # 止损线-5%
+    'stop_loss_pct': -0.07,    # 止损线-7%
 }
 
 # 数据源配置

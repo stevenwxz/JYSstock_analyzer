@@ -34,7 +34,7 @@ all_days = daily_data[sample_code].index
 mask = (all_days >= '2024-01-01') & (all_days <= '2026-05-25')
 trading_days = all_days[mask].tolist()
 
-stop_loss_pct = -0.05
+stop_loss_pct = -0.07
 cost = 0.0025
 nav = 1.0
 holdings = []
