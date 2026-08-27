@@ -77,12 +77,14 @@ def fetch_all_daily_data(stock_codes, start_date, end_date):
     """批量获取所有股票日线数据（使用腾讯API，快速无限流）"""
     cache_file = os.path.join(CACHE_DIR, 'daily_data.pkl')
     if os.path.exists(cache_file):
-        if time.time() - os.path.getmtime(cache_file) < 7 * 86400:
+        if time.time() - os.path.getmtime(cache_file) < 1 * 86400:
             with open(cache_file, 'rb') as f:
                 cached = pickle.load(f)
             if len(cached) >= len(stock_codes) * 0.9:
-                logger.info(f"使用缓存日线数据: {len(cached)}只")
-                return cached
+                sample = next(iter(cached.values()))
+                if sample.index[-1] >= pd.Timestamp(end_date) - pd.Timedelta(days=3):
+                    logger.info(f"使用缓存日线数据: {len(cached)}只")
+                    return cached
 
     all_data = {}
     total = len(stock_codes)
@@ -456,9 +458,12 @@ def run_backtest():
 
     # 2. 获取数据（带缓存）
     logger.info("获取日线数据...")
-    # 多取35天用于计算动量
+    # 多取35天用于计算动量；fetch到昨天以追踪本月建议表现
     fetch_start = (datetime.strptime(start, '%Y-%m-%d') - timedelta(days=50)).strftime('%Y-%m-%d')
-    daily_data = fetch_all_daily_data(stock_codes, fetch_start, end)
+    from datetime import date
+    yesterday = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+    fetch_end = max(end, yesterday)
+    daily_data = fetch_all_daily_data(stock_codes, fetch_start, fetch_end)
 
     logger.info("获取财报数据...")
     report_dates = ['20230630', '20230930', '20231231', '20240331', '20240630',
@@ -647,7 +652,14 @@ def run_backtest():
     # 5. 输出结果
     print_results(results, daily_navs, benchmark)
     plot_backtest_results(results, daily_navs, trading_days, benchmark)
-    generate_html_report(results, daily_navs, trading_days, benchmark)
+
+    # 6. 本月持仓建议（用回测最后一天数据选股）
+    recommendation = get_recommendation(daily_data, fin_data, benchmark,
+                                        stock_codes, trading_days[-1])
+    recommendation = track_recommendation_performance(recommendation, daily_data, benchmark)
+    generate_html_report(results, daily_navs, trading_days, benchmark,
+                         recommendation)
+    print_recommendation(recommendation)
 
 
 # === PLACEHOLDER_PRINT ===
@@ -811,7 +823,8 @@ def plot_backtest_results(results, daily_navs=None, trading_days=None, benchmark
     print(f"\n净值曲线已保存: {out_path}")
 
 
-def generate_html_report(results, daily_navs, trading_days, benchmark):
+def generate_html_report(results, daily_navs, trading_days, benchmark,
+                         recommendation=None):
     """生成图文并茂的HTML回测报告"""
     import base64, json as _json
     from io import BytesIO
@@ -1006,6 +1019,70 @@ img {{ width: 100%; border-radius: 8px;
 {rows_html}
 </table>
 
+"""
+
+    # 本月持仓建议
+    if recommendation and recommendation.get('picks'):
+        rec = recommendation
+        has_perf = any(p.get('return_pct') is not None for p in rec['picks'])
+        if has_perf:
+            track_date = next((p['track_date'] for p in rec['picks'] if p.get('track_date')), '')
+            rec_rows = ''
+            total_ret = 0
+            cnt = 0
+            for s in rec['picks']:
+                ret_val = s.get('return_pct')
+                if ret_val is not None:
+                    ret_cls = 'pos' if ret_val > 0 else 'neg'
+                    ret_str = f"<span class='{ret_cls}'>{ret_val:+.2f}%</span>"
+                    cur_str = f"{s['current_price']:.2f}"
+                    total_ret += ret_val
+                    cnt += 1
+                else:
+                    ret_str = 'N/A'
+                    cur_str = 'N/A'
+                rec_rows += (f"<tr><td>{s['code']}</td><td>{s['name']}</td>"
+                             f"<td>{s['price']:.2f}</td><td>{cur_str}</td>"
+                             f"<td>{ret_str}</td></tr>\n")
+            avg_ret = total_ret / cnt if cnt else 0
+            avg_cls = 'pos' if avg_ret > 0 else 'neg'
+            bench_ret = rec.get('bench_return')
+            rec_rows += (f"<tr style='font-weight:bold;border-top:2px solid #333'>"
+                         f"<td colspan='4'>等权平均</td>"
+                         f"<td class='{avg_cls}'>{avg_ret:+.2f}%</td></tr>\n")
+            if bench_ret is not None:
+                bench_cls = 'pos' if bench_ret > 0 else 'neg'
+                excess = avg_ret - bench_ret
+                exc_cls = 'pos' if excess > 0 else 'neg'
+                rec_rows += (f"<tr style='font-weight:bold'>"
+                             f"<td colspan='4'>沪深300同期</td>"
+                             f"<td class='{bench_cls}'>{bench_ret:+.2f}%</td></tr>\n")
+                rec_rows += (f"<tr style='font-weight:bold'>"
+                             f"<td colspan='4'>超额收益</td>"
+                             f"<td class='{exc_cls}'>{excess:+.2f}%</td></tr>\n")
+            html += f"""
+<h2>本月持仓建议（{rec['month']}）— 实际表现</h2>
+<p>选股基准日: {rec['date']} | 市场模式: <b>{rec['mode']}</b> | 止损: -7% | 截至: {track_date}</p>
+<table>
+<tr><th>代码</th><th>名称</th><th>买入价</th><th>现价</th><th>收益</th></tr>
+{rec_rows}
+</table>
+"""
+        else:
+            rec_rows = ''
+            for s in rec['picks']:
+                rec_rows += (f"<tr><td>{s['code']}</td><td>{s['name']}</td>"
+                             f"<td>{s['price']:.2f}</td><td>{s['score']:.0f}</td></tr>\n")
+            html += f"""
+<h2>本月持仓建议（{rec['month']}）</h2>
+<p>选股基准日: {rec['date']} | 市场模式: <b>{rec['mode']}</b> | 止损: -7%</p>
+<table>
+<tr><th>代码</th><th>名称</th><th>价格</th><th>评分</th></tr>
+{rec_rows}
+</table>
+"""
+
+    html += f"""
 <div class="footer">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
 </body></html>"""
 
@@ -1015,6 +1092,149 @@ img {{ width: 100%; border-radius: 8px;
         f.write(html)
     print(f"回测报告已生成: {out_path}")
     return out_path
+
+
+def get_recommendation(daily_data, fin_data, benchmark, stock_codes, latest_day):
+    """生成本月持仓建议数据"""
+    import json
+
+    name_map = {}
+    with open('./data/csi300_stocks.json', 'r', encoding='utf-8') as f:
+        for s in json.load(f)['stocks']:
+            name_map[s['code']] = s['name']
+
+    bull_mode = False
+    mode_name = '防守'
+    if latest_day in benchmark.index:
+        loc = benchmark.index.get_loc(latest_day)
+        if loc >= 60:
+            ma60 = benchmark.iloc[loc-60:loc]['close'].mean()
+            cur = float(benchmark.loc[latest_day]['close'])
+            if cur > ma60 * 1.02:
+                bull_mode = True
+                mode_name = '进攻'
+            elif cur < ma60 * 0.98:
+                mode_name = '防守'
+            else:
+                mode_name = '缓冲带(维持上期)'
+
+    all_stocks = []
+    for code in stock_codes:
+        sd = build_stock_data(code, daily_data, latest_day, fin_data)
+        if sd:
+            all_stocks.append(sd)
+
+    if bull_mode:
+        selected = select_stocks_offensive(all_stocks)
+    else:
+        selected = select_stocks_ultra_defensive(all_stocks)
+
+    next_month = latest_day.month % 12 + 1
+    next_year = latest_day.year + (1 if next_month == 1 else 0)
+    month_str = f'{next_year}-{next_month:02d}'
+
+    picks = []
+    for s in selected:
+        picks.append({
+            'code': s['code'],
+            'name': name_map.get(s['code'], s['code']),
+            'price': s['price'],
+            'score': s.get('strength_score', 0),
+        })
+
+    return {
+        'month': month_str,
+        'date': latest_day.strftime('%Y-%m-%d'),
+        'mode': mode_name,
+        'picks': picks,
+    }
+
+
+def track_recommendation_performance(rec, daily_data, benchmark):
+    """追踪本月建议持仓从选股日到昨天的实际表现"""
+    if not rec or not rec.get('picks'):
+        return rec
+
+    rec_date = datetime.strptime(rec['date'], '%Y-%m-%d')
+    for pick in rec['picks']:
+        code = pick['code']
+        buy_price = pick['price']
+        pick['current_price'] = None
+        pick['return_pct'] = None
+        pick['track_date'] = None
+
+        if code not in daily_data:
+            continue
+        df = daily_data[code]
+        future = df.index[df.index > rec_date]
+        if len(future) == 0:
+            continue
+        latest = future[-1]
+        cur_price = float(df.loc[latest]['收盘'])
+        pick['current_price'] = cur_price
+        pick['return_pct'] = (cur_price / buy_price - 1) * 100
+        pick['track_date'] = latest.strftime('%Y-%m-%d')
+
+    # 同期沪深300基准收益
+    rec['bench_return'] = None
+    track_date = next((p['track_date'] for p in rec['picks'] if p.get('track_date')), None)
+    if track_date and benchmark is not None:
+        td = pd.Timestamp(track_date)
+        rd = pd.Timestamp(rec['date'])
+        if rd in benchmark.index and td in benchmark.index:
+            rec['bench_return'] = (float(benchmark.loc[td]['close']) /
+                                   float(benchmark.loc[rd]['close']) - 1) * 100
+
+    return rec
+
+
+def print_recommendation(rec):
+    """打印本月持仓建议"""
+    print(f"\n{'='*60}")
+    print(f"  本月持仓建议（{rec['month']}）")
+    print(f"{'='*60}")
+    print(f"  选股基准日: {rec['date']}")
+    print(f"  市场模式: {rec['mode']}")
+    print(f"  建议持仓数: {len(rec['picks'])}")
+    print(f"  止损线: -7%")
+    print(f"{'='*60}")
+    if rec['picks']:
+        has_perf = any(p.get('return_pct') is not None for p in rec['picks'])
+        if has_perf:
+            track_date = next((p['track_date'] for p in rec['picks'] if p.get('track_date')), '')
+            print(f"  实际表现截至: {track_date}")
+            print(f"\n{'代码':<10} {'名称':<10} {'买入价':>8} {'现价':>8} {'收益':>8}")
+            print('-' * 50)
+            total_ret = 0
+            cnt = 0
+            for s in rec['picks']:
+                ret_str = f"{s['return_pct']:+.2f}%" if s.get('return_pct') is not None else 'N/A'
+                cur_str = f"{s['current_price']:.2f}" if s.get('current_price') else 'N/A'
+                print(f"{s['code']:<10} {s['name']:<10} "
+                      f"{s['price']:>8.2f} {cur_str:>8} {ret_str:>8}")
+                if s.get('return_pct') is not None:
+                    total_ret += s['return_pct']
+                    cnt += 1
+            if cnt:
+                avg_ret = total_ret / cnt
+                bench_ret = rec.get('bench_return')
+                bench_str = f"{bench_ret:+.2f}%" if bench_ret is not None else 'N/A'
+                excess = avg_ret - bench_ret if bench_ret is not None else None
+                excess_str = f"{excess:+.2f}%" if excess is not None else ''
+                print(f"{'':40} {'等权平均':>8} {avg_ret:+.2f}%")
+                print(f"{'':40} {'沪深300':>8} {bench_str:>8}")
+                if excess is not None:
+                    print(f"{'':40} {'超额收益':>8} {excess_str:>8}")
+        else:
+            print(f"\n{'代码':<10} {'名称':<10} {'价格':>8} {'评分':>6}")
+            print('-' * 40)
+            for s in rec['picks']:
+                print(f"{s['code']:<10} {s['name']:<10} "
+                      f"{s['price']:>8.2f} {s['score']:>6.1f}")
+    else:
+        print("  未选出符合条件的股票")
+    print(f"{'='*60}\n")
+
 
 if __name__ == '__main__':
     run_backtest()

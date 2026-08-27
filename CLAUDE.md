@@ -50,10 +50,10 @@ python scripts/plot_daily_curve.py  # 绘制净值曲线
 │   └── scheduler/
 │       └── task_scheduler.py   # 定时任务
 ├── scripts/
-│   ├── run_backtest.py         # 月度回测主脚本
+│   ├── run_backtest.py         # 月度回测+自动生成HTML报告+本月持仓建议
 │   ├── run_attribution.py      # 逐月归因分析
-│   ├── plot_daily_curve.py     # 净值曲线绘图
-│   └── generate_md_report.py   # 从JSON生成MD报告
+│   ├── run_param_compare.py    # 参数对比（调仓周期×止损线）
+│   └── plot_daily_curve.py     # 净值曲线绘图
 ├── data/
 │   └── csi300_stocks.json      # 沪深300成分股列表
 ├── reports/YYYY-MM/            # 按月分类的分析报告（gitignored）
