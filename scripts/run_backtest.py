@@ -26,7 +26,7 @@ import logging
 import requests
 from datetime import datetime, timedelta
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from config.backtest_config import BACKTEST_PARAMS
 from src.analysis.stock_filter import StockFilter
 
@@ -462,7 +462,8 @@ def run_backtest():
 
     logger.info("获取财报数据...")
     report_dates = ['20230630', '20230930', '20231231', '20240331', '20240630',
-                        '20240930', '20241231', '20250331', '20250630', '20250930', '20251231']
+                        '20240930', '20241231', '20250331', '20250630', '20250930', '20251231',
+                        '20260331', '20260630']
     fin_data = fetch_financial_data(report_dates)
 
     logger.info("获取沪深300基准...")
@@ -475,23 +476,27 @@ def run_backtest():
     trading_days = all_trading_days[mask].tolist()
     logger.info(f"交易日数: {len(trading_days)}")
 
-    # 4. 回测循环（逐日模拟：MA60攻防切换 + -5%止损 + 止损后剩余仓位继续）
+    # 4. 回测循环（逐日模拟：月度调仓+MA60±2%缓冲带+-5%止损）
     stop_loss_pct = -0.05
     cost = cost_buy + cost_sell
     results = []
-    daily_navs = []  # 逐日净值用于绘图
+    daily_navs = []
 
     nav_base = 1.0
     holdings = []  # [(code, buy_price, weight)]
-    stopped = {}   # code -> 止损锁定的亏损
+    stopped = {}
+    last_rebal_month = None
+    rebal_start_idx = 0
+    bull_mode = False  # 缓冲带内维持上一次模式
 
     i = 0
     while i < len(trading_days):
         today = trading_days[i]
+        is_rebal_day = (today.year, today.month) != last_rebal_month
 
-        if i % hold_days == 0:
+        if is_rebal_day:
             # 调仓日：先结算旧持仓
-            if i > 0 and holdings:
+            if last_rebal_month is not None and holdings:
                 port_return = 0
                 for code, buy_price, weight in holdings:
                     if code in daily_data and today in daily_data[code].index:
@@ -502,11 +507,10 @@ def run_backtest():
                 period_ret = port_return + cash_return
                 nav_base = nav_base * (1 + period_ret) * (1 - cost)
 
-                # 记录本期结果
-                buy_date_str = trading_days[i - hold_days].strftime('%Y-%m-%d')
+                buy_date_str = trading_days[rebal_start_idx].strftime('%Y-%m-%d')
                 sell_date_str = today.strftime('%Y-%m-%d')
                 bench_ret = 0
-                bd = trading_days[i - hold_days]
+                bd = trading_days[rebal_start_idx]
                 if bd in benchmark.index and today in benchmark.index:
                     bench_ret = (benchmark.loc[today]['close'] / benchmark.loc[bd]['close'] - 1) * 100
                 strat_ret_pct = ((1 + period_ret) * (1 - cost) - 1) * 100
@@ -522,16 +526,18 @@ def run_backtest():
                                      and float(daily_data[c].loc[today]['收盘']) / bp - 1 > 0),
                 })
 
-            # MA60趋势判断
-            bull_mode = False
+            # MA60 ±2%缓冲带趋势判断（与实盘market_analyzer一致）
             if today in benchmark.index:
                 loc = benchmark.index.get_loc(today)
                 if loc >= 60:
                     ma60 = benchmark.iloc[loc-60:loc]['close'].mean()
                     cur = float(benchmark.loc[today]['close'])
-                    bull_mode = cur > ma60
+                    if cur > ma60 * 1.02:
+                        bull_mode = True
+                    elif cur < ma60 * 0.98:
+                        bull_mode = False
+                    # 缓冲带内 bull_mode 保持上一次
 
-            # 构建股票数据并选股
             all_stocks = []
             for code in stock_codes:
                 sd = build_stock_data(code, daily_data, today, fin_data)
@@ -543,7 +549,6 @@ def run_backtest():
             else:
                 selected = select_stocks_ultra_defensive(all_stocks)
 
-            # 建仓
             holdings = []
             stopped = {}
             if selected:
@@ -551,6 +556,8 @@ def run_backtest():
                 for s in selected:
                     holdings.append((s['code'], s['price'], w))
 
+            last_rebal_month = (today.year, today.month)
+            rebal_start_idx = i
             daily_navs.append(nav_base)
         else:
             # 非调仓日：逐日盯盘止损，剩余仓位继续

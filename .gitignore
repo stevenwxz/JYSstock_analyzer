@@ -15,6 +15,7 @@ dist/
 # 项目特定
 .env
 cache/
+data_cache/
 *.log
 *.pkl
 
@@ -22,7 +23,10 @@ cache/
 logs/
 
 # 报告目录（生成的报告文件）
-reports/*.md
+reports/
+
+# 图表输出
+charts/
 
 # 备份文件
 *.md.bak

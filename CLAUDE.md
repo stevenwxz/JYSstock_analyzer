@@ -4,91 +4,94 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-沪深300股票量化分析系统。基于MA60趋势择时，在牛市使用进攻模式（高动量+高成长）选股，熊市切换超防守模式（低波动+低PB+高ROE）选股。每日盘后自动分析并通过邮件推送结果。
+沪深300股票量化分析系统。基于MA60趋势择时（±2%缓冲带），牛市用进攻模式（高动量+高成长）选股，熊市切换超防守模式（低波动+低PB+高ROE）。每日盘后自动分析并通过邮件推送结果。
 
 ## 常用命令
 
 ```bash
-# 安装依赖
 pip install -r requirements.txt
 
-# 手动执行分析
-python main.py --mode analysis
+# 日常分析
+python main.py --mode analysis      # 手动执行分析
+python main.py --mode daemon        # 守护进程（16:00分析，16:30发邮件）
+python main.py --mode email         # 发送最新报告邮件
 
-# 守护进程模式（定时16:00分析，16:30发邮件）
-python main.py --mode daemon
-
-# 发送邮件报告
-python main.py --mode email
-
-# 运行回测
-python run_backtest_optimized.py
+# 回测 & 分析
+python scripts/run_backtest.py      # 月度回测（MA60±2%缓冲带+止损）
+python scripts/run_attribution.py   # 逐月涨跌归因
+python scripts/plot_daily_curve.py  # 绘制净值曲线
 ```
 
-## 架构
-
-- `src/data/ifind_client.py` — 同花顺 iFinD SDK 客户端，单例模式封装登录/登出，提供：成分股、财报、行业、行情、K线、iWencai 智能取数（需配置 IFIND_USERNAME/IFIND_PASSWORD）
-- `src/data/data_fetcher.py` — **iFinD 优先 + 腾讯财经API兜底**：批量取数时iFinD一次返回300只；逐只失败时自动降级腾讯
-- `src/data/async_data_fetcher.py` — 异步批量获取（默认，并发20），计算动量/波动率/最大回撤
-- `src/data/financial_report_fetcher.py` — 财报数据：iFinD THS_BD 优先 + akshare fallback，并优先用 iFinD THS_DP 获取最新沪深300成分股
-- `src/analysis/stock_filter.py` — 核心评分筛选，含三种模式：
-  - `select_top_stocks()` — 基础模式（技术面30+估值25+盈利30+安全10+股息5）
-  - `select_top_stocks_offensive()` — 进攻模式（基础分+动量加分+成长加分）
-  - `select_top_stocks_ultra_defensive()` — 超防守模式（低波动30+低PB25+高ROE25+小回撤20+动量5）
-- `src/analysis/market_analyzer.py` — 市场分析协调器，含MA60趋势检测和模式切换
-- `src/notification/email_sender.py` — QQ邮箱SMTP发送HTML报告
-- `src/scheduler/task_scheduler.py` — 基于schedule库的定时任务
-- `config/config.py` — 筛选参数（PE<30, 换手率>1%, 最大持仓6只, 止损-5%） + iFinD 开关/账号配置（IFIND_CONFIG）
-- `config/backtest_config.py` — 回测参数（区间、持仓天数、交易成本）
-- `config/dividend_override.py` — 股息率手动修正
-
-## 核心策略逻辑
+## 目录结构
 
 ```
-1. 趋势判断: 沪深300收盘价 vs MA60
-   - 站上MA60 → 牛市 → 进攻模式
-   - 跌破MA60 → 熊市 → 超防守模式
+├── main.py                     # 入口（daemon/analysis/email/test）
+├── start.bat                   # Windows快捷启动
+├── config/
+│   ├── config.py               # 筛选参数 + iFinD配置
+│   ├── backtest_config.py      # 回测参数（区间、成本）
+│   └── dividend_override.py    # 股息率手动修正
+├── src/
+│   ├── data/
+│   │   ├── ifind_client.py     # iFinD SDK客户端（单例）
+│   │   ├── data_fetcher.py     # iFinD优先+腾讯兜底
+│   │   ├── async_data_fetcher.py  # 异步并发20获取
+│   │   └── financial_report_fetcher.py  # 财报（iFinD/akshare）
+│   ├── analysis/
+│   │   ├── stock_filter.py     # 核心评分（进攻/防守/基础三模式）
+│   │   └── market_analyzer.py  # MA60趋势+选股+止损监控+报告生成
+│   ├── notification/
+│   │   └── email_sender.py     # QQ邮箱SMTP
+│   └── scheduler/
+│       └── task_scheduler.py   # 定时任务
+├── scripts/
+│   ├── run_backtest.py         # 月度回测主脚本
+│   ├── run_attribution.py      # 逐月归因分析
+│   ├── plot_daily_curve.py     # 净值曲线绘图
+│   └── generate_md_report.py   # 从JSON生成MD报告
+├── data/
+│   └── csi300_stocks.json      # 沪深300成分股列表
+├── reports/YYYY-MM/            # 按月分类的分析报告（gitignored）
+├── charts/                     # 回测图表输出（gitignored）
+├── cache/                      # 数据缓存（gitignored，7天过期）
+└── logs/                       # 运行日志（gitignored）
+```
 
-2. 进攻模式: 基础评分 + 高动量加分(最高12) + 高成长加分(5)
-3. 超防守模式: 低波动(30) + 低PB(25) + 高ROE(25) + 小回撤(20) + 温和动量(5)
-4. 止损: 单只股票 -5% 止损
-5. 持仓: 最多6只，7个交易日调仓
+## 核心策略
+
+```
+趋势判断: 沪深300 vs MA60（±2%缓冲带）
+  - 突破 MA60×1.02 → 进攻模式
+  - 跌破 MA60×0.98 → 防守模式
+  - 缓冲带内维持上次模式
+
+进攻模式: 基础评分 + 动量加分(最高+12) + 成长加分(+5)
+防守模式: 低波动(30) + 低PB(25) + 高ROE(25) + 小回撤(20) + 动量(5)
+止损: -5%（每日监控，报告标红）
+持仓: 最多6只，月度调仓
 ```
 
 ## 数据流
 
 ```
-腾讯财经API → async_data_fetcher(实时+基本面+动量+波动率+回撤)
-    ↓
-financial_report_fetcher(真实财报覆盖ROE/利润增长)
-    ↓
-market_analyzer.detect_market_trend() → 判断牛/熊
-    ↓
-牛市: stock_filter.select_top_stocks_offensive()
-熊市: stock_filter.select_top_stocks_ultra_defensive()
-    ↓
-email_sender / reports/
+iFinD/腾讯API → async_data_fetcher(批量300只)
+    → financial_report_fetcher(ROE/利润增长覆盖)
+    → market_analyzer.detect_market_trend()
+    → 进攻/防守选股 + 止损检查
+    → 报告生成(reports/YYYY-MM/) + 邮件推送
 ```
 
-## 财报数据策略
+## 回测结果（2024-01 ~ 2026-07，月度调仓）
 
-- ROE：取最近年报（ak.stock_yjbb_em），代表稳定盈利能力
-- 利润增长率：取最新季报，代表当前趋势
-- 缓存在 `cache/financial_reports/`，每天一份，只保留沪深300数据
-
-## 回测结果（2024-01-02 ~ 2026-05-13）
-
-- 策略收益: +92.80%
-- 最大回撤: 16.5%
-- 胜率: 51.9%
-- 超额收益: +45.20%（vs 沪深300 +47.60%）
+- 策略收益: +84.07%
+- 基准收益: +46.44%（沪深300）
+- 超额收益: +37.63%
+- 最大回撤: 19.63%
+- 胜率: 51.1%
 
 ## 注意事项
 
-- 代码中主动禁用HTTP代理（访问国内akshare数据源不需要代理）
-- 环境变量通过 `.env` 文件配置：
-  - 邮件：`EMAIL_ADDRESS`, `EMAIL_PASSWORD`, `TO_EMAIL`
-  - iFinD：`IFIND_USERNAME`, `IFIND_PASSWORD`, `IFIND_ENABLED`(默认true), `IFIND_PREFER`(默认true)
-- 数据缓存在 `cache/` 目录，7天过期自动失效
-- MA60趋势检测通过腾讯K线API获取沪深300指数数据
-- iFinD SDK 未安装/未配置时，所有模块自动回退到腾讯+akshare免费方案，不会报错中断
+- 代码中主动禁用HTTP代理（国内数据源不需要）
+- 环境变量通过 `.env` 配置：邮件(EMAIL_ADDRESS/PASSWORD/TO_EMAIL) + iFinD(IFIND_USERNAME/PASSWORD/ENABLED/PREFER)
+- iFinD未安装时自动回退到腾讯+akshare免费方案
+- 数据返回带 `data_source` 字段标识来源（ifind/tencent）

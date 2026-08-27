@@ -493,8 +493,9 @@ class MarketAnalyzer:
             md_content += f"分析{total_analyzed}只\n\n"
             md_content += f"<sub>{datetime.now().strftime('%H:%M:%S')} · v4.0 · 仅供参考，不构成投资建议</sub>\n"
 
-            os.makedirs('./reports', exist_ok=True)
-            output_file = f"./reports/{date_cn}沪深300分析结果.md"
+            month_dir = f"./reports/{date_obj.strftime('%Y-%m')}"
+            os.makedirs(month_dir, exist_ok=True)
+            output_file = f"{month_dir}/{date_cn}沪深300分析结果.md"
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(md_content)
 

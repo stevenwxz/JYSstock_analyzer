@@ -6,7 +6,7 @@ os.environ['no_proxy'] = '*'
 for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
     os.environ.pop(key, None)
 logging.disable(logging.CRITICAL)
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import matplotlib
 matplotlib.use('Agg')
