@@ -148,12 +148,12 @@ def _fetch_from_akshare(target_codes: set) -> Dict[str, Dict]:
                 'source': 'akshare',
             }
 
-    logger.info(f"akshare 财报数据: ROE覆盖{len(roe_map)}只, 增长率覆盖{len(growth_map)}只 (沪深300)")
+    logger.info(f"akshare 财报数据: ROE覆盖{len(roe_map)}只, 增长率覆盖{len(growth_map)}只 (中证800)")
     return result
 
 
 def _load_csi300_codes() -> set:
-    """加载沪深300成分股代码集合，优先使用 iFinD 获取最新成分股"""
+    """加载成分股代码集合（中证800优先），优先使用 iFinD 获取最新成分股"""
     if IFIND_CONFIG.get('enabled') and IFIND_CONFIG.get('prefer_ifind'):
         try:
             from src.data.ifind_client import IFinDClient
@@ -163,14 +163,15 @@ def _load_csi300_codes() -> set:
                 if constituents:
                     codes = {s['code'] for s in constituents}
                     if len(codes) >= 290:
-                        logger.info(f"使用 iFinD 沪深300成分股：{len(codes)}只")
+                        logger.info(f"使用 iFinD 成分股：{len(codes)}只")
                         _update_csi300_cache(constituents)
                         return codes
         except Exception as e:
-            logger.debug(f"iFinD 获取沪深300成分股失败：{e}")
+            logger.debug(f"iFinD 获取成分股失败：{e}")
 
     try:
-        with open('./data/csi300_stocks.json', 'r', encoding='utf-8') as f:
+        stock_file = './data/csi300_stocks.json' if os.path.exists('./data/csi300_stocks.json') else './data/csi800_stocks.json'
+        with open(stock_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         return {s['code'] for s in data['stocks']}
     except Exception:
@@ -187,11 +188,11 @@ def _update_csi300_cache(constituents: List[Dict]) -> None:
             'stocks': constituents,
         }
         os.makedirs('./data', exist_ok=True)
-        with open('./data/csi300_stocks.json', 'w', encoding='utf-8') as f:
+        with open('./data/csi800_stocks.json', 'w', encoding='utf-8') as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        logger.debug(f"沪深300成分股缓存已更新：{len(constituents)}只")
+        logger.debug(f"成分股缓存已更新：{len(constituents)}只")
     except Exception as e:
-        logger.warning(f"沪深300成分股缓存写入失败：{e}")
+        logger.warning(f"成分股缓存写入失败：{e}")
 
 
 def _fetch_roe(target_codes: set) -> Dict[str, float]:

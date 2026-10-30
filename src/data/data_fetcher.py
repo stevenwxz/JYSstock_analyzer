@@ -11,8 +11,9 @@ import os
 
 # 添加config路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from config.dividend_override import get_manual_dividend_yield, has_manual_override
+from config.dividend_override import get_manual_dividend_per_share
 from config.config import IFIND_CONFIG
+from src.data.indicators import calculate_financial_health, calculate_momentum
 
 logger = logging.getLogger(__name__)
 
@@ -370,18 +371,17 @@ class StockDataFetcher:
 
                         # 解析股息率 - 采用统一的每10股转换算法
                         dividend_yield = None
+                        # 当前股价（手动每股股息和API股息数据都需要用到）
+                        current_price = float(data_parts[3]) if data_parts[3] else None
 
-                        # 1. 首先检查是否有手动配置的股息率
-                        manual_dividend = get_manual_dividend_yield(stock_code)
-                        if manual_dividend is not None:
-                            dividend_yield = manual_dividend
-                            logger.debug(f"{stock_code} 使用手动配置的股息率: {dividend_yield}%")
+                        # 1. 优先用手动配置的每股股息 + 实时股价动态计算股息率
+                        manual_dps = get_manual_dividend_per_share(stock_code)
+                        if manual_dps is not None and current_price and current_price > 0:
+                            dividend_yield = (manual_dps / current_price) * 100
+                            logger.debug(f"{stock_code} 使用手动每股股息 {manual_dps} 元，按股价 {current_price} 动态计算股息率: {dividend_yield:.2f}%")
                         else:
-                            # 2. 获取当前股价和股息数据
-                            current_price = float(data_parts[3]) if data_parts[3] else None
+                            # 2. 从API获取股息数据（字段[53]，每10股股息）
                             dividend_data = None
-
-                            # 尝试从API获取股息数据（字段[53]）
                             if len(data_parts) > 53 and data_parts[53]:
                                 try:
                                     dividend_data = float(data_parts[53])
@@ -462,7 +462,7 @@ class StockDataFetcher:
                                 profit_growth = None
 
                         # 基于现有数据推算财务健康度评分
-                        financial_health_score = self._calculate_financial_health(
+                        financial_health_score = calculate_financial_health(
                             pb_ratio, dividend_yield, pe_ratio, turnover_rate
                         )
 
@@ -507,55 +507,6 @@ class StockDataFetcher:
                 'gross_margin': None,
                 # 不设置market_cap和total_shares为None，保留实时数据中的值
             }
-
-    def _calculate_financial_health(self, pb: Optional[float], div_yield: Optional[float],
-                                    pe: Optional[float], turnover: Optional[float]) -> int:
-        """基于有限数据计算财务健康度评分 (0-100)"""
-        score = 50  # 基础分50分
-
-        try:
-            # PB评分 (±20分)
-            if pb:
-                if pb < 1:  # 破净
-                    score += 20
-                elif pb < 2:  # 低估
-                    score += 10
-                elif pb > 10:  # 极度高估
-                    score -= 20
-                elif pb > 5:  # 高估
-                    score -= 10
-
-            # 股息率评分 (±15分)
-            if div_yield:
-                if div_yield > 5:
-                    score += 15
-                elif div_yield > 3:
-                    score += 10
-                elif div_yield > 2:
-                    score += 5
-                elif div_yield < 1:
-                    score -= 5
-
-            # PE评分 (±10分)
-            if pe:
-                if 10 < pe < 20:  # 合理区间
-                    score += 10
-                elif 20 <= pe < 30:
-                    score += 5
-                elif pe >= 50:  # 过高
-                    score -= 10
-
-            # 换手率评分 (±5分)
-            if turnover:
-                if 1 < turnover < 5:  # 适中
-                    score += 5
-                elif turnover > 20:  # 过度投机
-                    score -= 5
-
-        except:
-            pass
-
-        return max(0, min(100, score))  # 限制在0-100之间
 
     def get_stock_historical_data(self, stock_code: str, days: int = 30) -> pd.DataFrame:
         """获取股票历史数据 - 使用腾讯财经API，带重试机制和缓存"""
@@ -683,20 +634,6 @@ class StockDataFetcher:
             self.failed_stocks.append(stock_code)
         logger.error(f"获取股票 {stock_code} 历史数据失败，已重试 {max_retries} 次")
         return pd.DataFrame()
-
-    def calculate_momentum(self, price_data: pd.DataFrame, days: int = 20) -> float:
-        """计算股票动量指标"""
-        if len(price_data) < days:
-            return 0
-
-        try:
-            recent_prices = price_data['close'].tail(days)
-            # 计算价格动量 (最新价格 / days天前价格 - 1) * 100
-            momentum = (recent_prices.iloc[-1] / recent_prices.iloc[0] - 1) * 100
-            return momentum
-        except Exception as e:
-            logger.error(f"计算动量指标失败: {e}")
-            return 0
 
     def get_market_overview(self) -> Dict:
         """获取市场概况 - 真实统计全市场涨跌数据"""
@@ -834,51 +771,15 @@ class StockDataFetcher:
                     raise Exception("统计失败")
 
             except Exception as tencent_error:
-                logger.warning(f"真实统计失败，使用兜底数据: {tencent_error}")
+                logger.error(f"真实统计失败: {tencent_error}")
 
-            # 如果实时数据失败，返回基于历史的模拟概况
-            stock_list = self.get_a_share_list()
-            if not stock_list.empty:
-                total_stocks = len(stock_list)
-
-                # 由于获取不到实时数据，使用模拟的市场统计
-                overview = {
-                    'total_stocks': total_stocks,
-                    'rising_stocks': int(total_stocks * 0.45),  # 模拟45%上涨
-                    'falling_stocks': int(total_stocks * 0.35), # 模拟35%下跌
-                    'rising_ratio': 45.0,
-                    'avg_change_pct': 0.2,  # 模拟平均涨跌幅
-                    'update_time': datetime.now(),
-                    'data_source': '模拟数据(节假日或网络问题)',
-                    'note': '由于股市休市或网络问题，显示模拟市场数据'
-                }
-
-                return overview
-
-            # 最后的兜底数据
-            return {
-                'total_stocks': 5000,
-                'rising_stocks': 2250,
-                'falling_stocks': 1750,
-                'rising_ratio': 45.0,
-                'avg_change_pct': 0.2,
-                'update_time': datetime.now(),
-                'data_source': '兜底数据',
-                'note': '无法获取实际市场数据'
-            }
+            # 实时数据获取失败时明确返回 None，避免用伪造数据污染分析结果
+            logger.error("市场概况数据获取失败，返回 None（不伪造数据）")
+            return None
 
         except Exception as e:
             logger.error(f"获取市场概况失败: {e}")
-            return {
-                'total_stocks': 5000,
-                'rising_stocks': 2250,
-                'falling_stocks': 1750,
-                'rising_ratio': 45.0,
-                'avg_change_pct': 0.2,
-                'update_time': datetime.now(),
-                'data_source': '错误兜底',
-                'error': str(e)
-            }
+            return None
 
     def batch_get_stock_data(self, stock_codes: List[str], calculate_momentum: bool = True,
                             include_fundamental: bool = True) -> List[Dict]:
@@ -951,7 +852,7 @@ class StockDataFetcher:
                         if hist_df is None or hist_df.empty:
                             hist_df = self.get_stock_historical_data(code, days=30)
                         if hist_df is not None and not hist_df.empty and len(hist_df) >= 20:
-                            momentum = self.calculate_momentum(hist_df, days=20)
+                            momentum = calculate_momentum(hist_df, days=20)
                             realtime_data['momentum_20d'] = momentum
                             momentum_success += 1
                         else:
@@ -1021,6 +922,7 @@ class StockDataFetcher:
                         fin = financial_map[code]
                         if fin.get('roe') is not None:
                             stock['roe'] = fin['roe']
+                            stock['roe_source'] = 'financial'  # 标记ROE来自真实财报
                         if fin.get('profit_growth') is not None:
                             stock['profit_growth'] = fin['profit_growth']
                         if fin.get('source'):
@@ -1056,7 +958,7 @@ class StockDataFetcher:
                     try:
                         historical_data = self.get_stock_historical_data(code, days=30)
                         if not historical_data.empty and len(historical_data) >= 20:
-                            momentum = self.calculate_momentum(historical_data, days=20)
+                            momentum = calculate_momentum(historical_data, days=20)
                             realtime_data['momentum_20d'] = momentum
                         else:
                             realtime_data['momentum_20d'] = 0

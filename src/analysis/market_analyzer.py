@@ -78,34 +78,42 @@ class MarketAnalyzer:
             return {'mode': 'defensive', 'price': 0, 'ma60': 0, 'reason': f'检测失败: {e}'}
 
     def _load_csi300_stocks(self) -> pd.DataFrame:
-        """加载沪深300成分股列表 - 优先使用本地缓存"""
+        """加载沪深300成分股列表 - 优先使用本地缓存（回测证明CSI300优于CSI800）"""
         try:
-            # 方法1: 从本地JSON文件加载(快速)
+            # 方法1: 从本地JSON文件加载(快速) - 优先沪深300，fallback中证800
             local_file = './data/csi300_stocks.json'
-            if os.path.exists(local_file):
-                logger.info("从本地文件加载沪深300成分股列表...")
-                with open(local_file, 'r', encoding='utf-8') as f:
+            fallback_file = './data/csi800_stocks.json'
+
+            target_file = local_file if os.path.exists(local_file) else (fallback_file if os.path.exists(fallback_file) else None)
+
+            if target_file:
+                logger.info(f"从本地文件加载成分股列表: {target_file}")
+                with open(target_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     stocks = data['stocks']
-                    logger.info(f"成功从本地加载 {len(stocks)} 只沪深300成分股 (更新日期: {data.get('update_date', '未知')})")
+                    logger.info(f"成功加载 {len(stocks)} 只成分股 (更新日期: {data.get('update_date', '未知')})")
                     return pd.DataFrame(stocks)
 
-            # 方法2: 使用akshare在线获取(慢速,作为备用)
-            logger.warning("本地文件不存在,尝试在线获取沪深300成分股列表(可能较慢)...")
+            # 方法2: 使用akshare在线获取沪深300
+            logger.warning("本地文件不存在,尝试在线获取沪深300成分股列表...")
             import akshare as ak
-            csi300_stocks = ak.index_stock_cons(symbol="000300")
-            if not csi300_stocks.empty:
-                logger.info(f"在线获取成功: {len(csi300_stocks)} 只")
-                # 保存到本地以便下次使用
-                result = pd.DataFrame({
-                    'code': csi300_stocks['品种代码'].tolist(),
-                    'name': csi300_stocks['品种名称'].tolist()
-                })
-                # 保存到本地
+            merged = {}
+            try:
+                df300 = ak.index_stock_cons(symbol="000300")
+                for _, row in df300.iterrows():
+                    merged[row['品种代码']] = row['品种名称']
+            except Exception:
+                pass
+
+            if merged:
+                logger.info(f"在线获取成功: {len(merged)} 只")
+                result = pd.DataFrame([{'code': c, 'name': n} for c, n in merged.items()])
                 os.makedirs('./data', exist_ok=True)
+                local_file = './data/csi300_stocks.json'
                 save_data = {
                     'update_date': datetime.now().strftime('%Y-%m-%d'),
                     'note': '沪深300成分股列表 - 自动生成',
+                    'count': len(result),
                     'stocks': result.to_dict('records')
                 }
                 with open(local_file, 'w', encoding='utf-8') as f:
@@ -117,7 +125,7 @@ class MarketAnalyzer:
             return pd.DataFrame()
 
         except Exception as e:
-            logger.error(f"加载沪深300成分股列表失败: {e}")
+            logger.error(f"加载成分股列表失败: {e}")
             return pd.DataFrame()
 
     def run_daily_analysis(self) -> Dict:
@@ -159,6 +167,13 @@ class MarketAnalyzer:
                     all_stock_data.extend(batch_data)
 
             logger.info(f"成功获取 {len(all_stock_data)} 只股票的数据")
+            coverage = len(all_stock_data) / len(stock_codes)
+            if not all_stock_data:
+                raise RuntimeError("实时行情数据为空，请检查网络或 DNS 后重试")
+            if coverage < 0.85:
+                raise RuntimeError(
+                    f"实时行情覆盖率仅 {coverage:.1%}，低于 85%，为避免错误选股已终止分析"
+                )
 
             # 4. 趋势检测 + 模式切换选股
             trend_info = self.detect_market_trend()
@@ -248,7 +263,8 @@ class MarketAnalyzer:
                 }
 
             # 风险提示
-            if market_overview.get('rising_ratio', 0) < 30:
+            rising_ratio = market_overview.get('rising_ratio', 0) if market_overview else 0
+            if rising_ratio and rising_ratio < 30:
                 summary['risk_warnings'].append("市场整体表现较弱，注意控制仓位")
 
             if any(s.get('pe_ratio', 0) > 25 for s in selected_stocks):
@@ -263,6 +279,8 @@ class MarketAnalyzer:
     def _analyze_market_sentiment(self, market_overview: Dict) -> str:
         """分析市场情绪"""
         try:
+            if not market_overview:
+                return "未知"
             rising_ratio = market_overview.get('rising_ratio', 0)
             avg_change = market_overview.get('avg_change_pct', 0)
 
@@ -428,7 +446,7 @@ class MarketAnalyzer:
             selected_stocks = analysis_result.get('selected_stocks', [])
             total_analyzed = analysis_result.get('total_analyzed', 300)
             config = analysis_result.get('selection_criteria', {})
-            market_overview = analysis_result.get('market_overview', {})
+            market_overview = analysis_result.get('market_overview') or {}
             trend_info = analysis_result.get('market_trend', {})
             market_mode = analysis_result.get('market_mode', 'unknown')
 
@@ -449,8 +467,11 @@ class MarketAnalyzer:
             md_content += f"沪深300 `{trend_price:.2f}` {'>' if is_bull else '<'} MA60 `{trend_ma60:.2f}` | "
             md_content += f"偏离 `{diff_pct:+.1f}%`\n\n"
             md_content += f"市场: {sentiment} | "
-            md_content += f"涨跌比 {market_overview.get('rising_stocks', 0)}/{market_overview.get('falling_stocks', 0)} | "
-            md_content += f"均幅 {avg_chg:+.2f}%\n\n"
+            if market_overview:
+                md_content += f"涨跌比 {market_overview.get('rising_stocks', 0)}/{market_overview.get('falling_stocks', 0)} | "
+                md_content += f"均幅 {avg_chg:+.2f}%\n\n"
+            else:
+                md_content += "市场概况数据不可用\n\n"
             md_content += "---\n\n"
 
             # 选股逻辑说明

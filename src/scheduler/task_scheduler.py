@@ -21,46 +21,47 @@ class TaskScheduler:
         self.task_history = []
 
     def is_trading_day(self) -> bool:
-        """判断是否为交易日（排除周末和中国法定节假日）"""
+        """判断是否为交易日（排除周末和中国法定节假日）
+
+        优先使用 akshare 交易日历（自动覆盖法定节假日，免维护）；
+        接口不可用时回退到"仅排除周末"的粗判断。
+        """
         today = datetime.now()
         weekday = today.weekday()
 
         if weekday >= 5:
             return False
 
-        # 中国A股休市日（每年需更新）
-        holidays_2025 = {
-            '01-01',  # 元旦
-            '01-28', '01-29', '01-30', '01-31',  # 春节
-            '02-01', '02-02', '02-03', '02-04',
-            '04-04', '04-05', '04-06',  # 清明
-            '05-01', '05-02', '05-03', '05-04', '05-05',  # 劳动节
-            '05-31', '06-01', '06-02',  # 端午
-            '10-01', '10-02', '10-03', '10-04',  # 国庆
-            '10-05', '10-06', '10-07', '10-08',
-        }
-        holidays_2026 = {
-            '01-01', '01-02',  # 元旦
-            '02-16', '02-17', '02-18', '02-19',  # 春节
-            '02-20', '02-21', '02-22', '02-23',
-            '04-05', '04-06', '04-07',  # 清明
-            '05-01', '05-02', '05-03', '05-04', '05-05',  # 劳动节
-            '06-19', '06-20', '06-21',  # 端午
-            '10-01', '10-02', '10-03', '10-04',  # 国庆
-            '10-05', '10-06', '10-07', '10-08',
-        }
+        try:
+            trading_dates = self._get_trading_dates()
+            if trading_dates:
+                return today.date() in trading_dates
+        except Exception as e:
+            logger.warning(f"获取交易日历失败，回退到仅排除周末的判断: {e}")
 
-        holidays_by_year = {
-            2025: holidays_2025,
-            2026: holidays_2026,
-        }
-
-        year_holidays = holidays_by_year.get(today.year, set())
-        today_str = today.strftime('%m-%d')
-        if today_str in year_holidays:
-            return False
-
+        # 兜底：工作日即视为交易日（法定节假日由交易日历覆盖）
         return True
+
+    def _get_trading_dates(self):
+        """获取A股交易日历集合（带内存缓存，首次调用时联网获取）"""
+        if getattr(self, '_trading_dates', None) is not None:
+            return self._trading_dates
+
+        import akshare as ak
+        df = ak.tool_trade_date_hist_sina()
+        if df is None or df.empty:
+            return None
+
+        from datetime import date as _date
+        dates = set()
+        for d in df['trade_date']:
+            if hasattr(d, 'date'):
+                dates.add(d.date())
+            else:
+                dates.add(_date.fromisoformat(str(d)))
+        self._trading_dates = dates
+        logger.info(f"交易日历已加载：{len(dates)} 个交易日")
+        return dates
 
     def run_daily_analysis(self):
         """执行每日分析任务"""

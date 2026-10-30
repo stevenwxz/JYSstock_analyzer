@@ -13,7 +13,8 @@ import json
 
 # 添加config路径
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from config.dividend_override import get_manual_dividend_yield, has_manual_override
+from config.dividend_override import get_manual_dividend_per_share
+from src.data.indicators import calculate_financial_health, calculate_momentum
 
 logger = logging.getLogger(__name__)
 
@@ -223,11 +224,13 @@ class AsyncStockDataFetcher:
 
                     # 解析股息率
                     dividend_yield = None
-                    manual_dividend = get_manual_dividend_yield(stock_code)
-                    if manual_dividend is not None:
-                        dividend_yield = manual_dividend
+                    current_price = float(data_parts[3]) if data_parts[3] else None
+
+                    # 优先用手动每股股息 + 实时股价动态计算股息率
+                    manual_dps = get_manual_dividend_per_share(stock_code)
+                    if manual_dps is not None and current_price and current_price > 0:
+                        dividend_yield = (manual_dps / current_price) * 100
                     else:
-                        current_price = float(data_parts[3]) if data_parts[3] else None
                         dividend_data = None
 
                         if len(data_parts) > 53 and data_parts[53]:
@@ -296,7 +299,7 @@ class AsyncStockDataFetcher:
                             profit_growth = None
 
                     # 计算财务健康度评分
-                    financial_health_score = self._calculate_financial_health(
+                    financial_health_score = calculate_financial_health(
                         pb_ratio, dividend_yield, pe_ratio, turnover_rate
                     )
 
@@ -330,50 +333,6 @@ class AsyncStockDataFetcher:
                 'gross_margin': None,
                 # 不设置market_cap和total_shares为None，保留实时数据中的值
             }
-
-    def _calculate_financial_health(self, pb: Optional[float], div_yield: Optional[float],
-                                   pe: Optional[float], turnover: Optional[float]) -> int:
-        """计算财务健康度评分"""
-        score = 50
-
-        try:
-            if pb:
-                if pb < 1:
-                    score += 20
-                elif pb < 2:
-                    score += 10
-                elif pb > 10:
-                    score -= 20
-                elif pb > 5:
-                    score -= 10
-
-            if div_yield:
-                if div_yield > 5:
-                    score += 15
-                elif div_yield > 3:
-                    score += 10
-                elif div_yield > 2:
-                    score += 5
-                elif div_yield < 1:
-                    score -= 5
-
-            if pe:
-                if 10 < pe < 20:
-                    score += 10
-                elif 20 <= pe < 30:
-                    score += 5
-                elif pe >= 50:
-                    score -= 10
-
-            if turnover:
-                if 1 < turnover < 5:
-                    score += 5
-                elif turnover > 20:
-                    score -= 5
-        except:
-            pass
-
-        return max(0, min(100, score))
 
     async def get_stock_historical_data(self, session: aiohttp.ClientSession,
                                        stock_code: str, days: int = 30) -> pd.DataFrame:
@@ -438,25 +397,30 @@ class AsyncStockDataFetcher:
 
             return pd.DataFrame()
 
-    def calculate_momentum(self, price_data: pd.DataFrame, days: int = 20) -> float:
-        """计算动量指标"""
-        if len(price_data) < days:
-            return 0
-
-        try:
-            recent_prices = price_data['close'].tail(days)
-            momentum = (recent_prices.iloc[-1] / recent_prices.iloc[0] - 1) * 100
-            return momentum
-        except Exception as e:
-            logger.debug(f"计算动量失败: {e}")
-            return 0
-
     async def get_stock_industry_info(self, session: aiohttp.ClientSession,
                                      stock_code: str) -> str:
         """异步获取股票行业信息 - 简化版,直接返回未知"""
         # 为了提升性能,暂时跳过行业信息获取
         # 后续可以通过本地缓存文件来批量获取
         return "未知行业"
+
+    def _batch_industry_map(self, codes: List[str]) -> Dict[str, Dict]:
+        """通过 iFinD 批量获取行业分类（与同步路径对齐）。
+
+        返回 {code: {'industry_sw': ..., 'industry_ths': ..., 'concept': ...}}。
+        iFinD 不可用或失败时返回空字典，由调用方回退到"未知行业"。
+        """
+        if not codes:
+            return {}
+        try:
+            from src.data.ifind_client import IFinDClient
+            if not IFinDClient.is_available() or not IFinDClient.auto_login():
+                return {}
+            industry_map = IFinDClient.get_industry_map(codes)
+            return industry_map or {}
+        except Exception as e:
+            logger.debug(f"iFinD 行业分类获取失败: {e}")
+            return {}
 
     async def batch_get_stock_data(self, stock_codes: List[str],
                                   calculate_momentum: bool = True,
@@ -534,6 +498,7 @@ class AsyncStockDataFetcher:
                             fin = financial_map[code]
                             if fin.get('roe') is not None:
                                 stock['roe'] = fin['roe']
+                                stock['roe_source'] = 'financial'  # 标记ROE来自真实财报
                             if fin.get('profit_growth') is not None:
                                 stock['profit_growth'] = fin['profit_growth']
                             override_count += 1
@@ -554,7 +519,7 @@ class AsyncStockDataFetcher:
                 momentum_success = 0
                 for stock, hist_data in zip(valid_stocks, historical_results):
                     if not hist_data.empty and len(hist_data) >= 20:
-                        momentum = self.calculate_momentum(hist_data, days=20)
+                        momentum = calculate_momentum(hist_data, days=20)
                         stock['momentum_20d'] = momentum
                         closes = hist_data['close'].tail(20).values
                         daily_returns = np.diff(closes) / closes[:-1] * 100
@@ -573,9 +538,16 @@ class AsyncStockDataFetcher:
                 for stock in valid_stocks:
                     stock['momentum_20d'] = 0
 
-            # 第四步: 批量获取行业信息 (简化版)
+            # 第四步: 批量获取行业信息（优先 iFinD 批量接口，与同步路径对齐）
+            industry_map = self._batch_industry_map([s['code'] for s in valid_stocks])
             for stock in valid_stocks:
-                stock['industry'] = "未知行业"
+                info = industry_map.get(stock['code'])
+                if info:
+                    sw = info.get('industry_sw', '') or ''
+                    ths = info.get('industry_ths', '') or ''
+                    stock['industry'] = sw or ths or "未知行业"
+                else:
+                    stock['industry'] = "未知行业"
 
         elapsed = time.time() - start_time
         logger.info(f"批量获取完成! 用时: {elapsed:.2f}秒, 平均速度: {len(valid_stocks)/elapsed:.1f}只/秒")
@@ -632,13 +604,12 @@ class AsyncStockDataFetcher:
 
                 avg_change = sum(d['change_pct'] for d in index_data[:3]) / 3 if index_data else 0
 
-                # 使用简化的市场统计 - 只统计沪深300的涨跌情况
-                # 加载沪深300列表
-                csi300_file = './data/csi300_stocks.json'
-                if os.path.exists(csi300_file):
-                    with open(csi300_file, 'r', encoding='utf-8') as f:
-                        csi300_data = json.load(f)
-                        stock_codes = [s['code'] for s in csi300_data['stocks']]
+                # 使用简化的市场统计 - 统计成分股的涨跌情况
+                csi_file = './data/csi300_stocks.json' if os.path.exists('./data/csi300_stocks.json') else './data/csi800_stocks.json'
+                if os.path.exists(csi_file):
+                    with open(csi_file, 'r', encoding='utf-8') as f:
+                        csi_data = json.load(f)
+                        stock_codes = [s['code'] for s in csi_data['stocks']]
 
                     # 批量查询沪深300股票涨跌
                     rising = 0
@@ -717,32 +688,13 @@ class AsyncStockDataFetcher:
                     logger.info(f"市场概况获取成功: 上涨{rising}, 下跌{falling}, 上涨比例{rising_ratio:.2f}%")
                     return overview
 
-            # 如果失败,返回兜底数据
-            return {
-                'total_stocks': 300,
-                'rising_stocks': 135,
-                'falling_stocks': 105,
-                'flat_stocks': 60,
-                'rising_ratio': 45.0,
-                'avg_change_pct': 0.2,
-                'update_time': datetime.now(),
-                'data_source': '兜底数据',
-                'note': '无法获取实际市场数据'
-            }
+            # 失败时明确返回 None，不伪造数据
+            logger.error("市场概况数据获取失败，返回 None（不伪造数据）")
+            return None
 
         except Exception as e:
             logger.error(f"获取市场概况失败: {e}")
-            return {
-                'total_stocks': 300,
-                'rising_stocks': 135,
-                'falling_stocks': 105,
-                'flat_stocks': 60,
-                'rising_ratio': 45.0,
-                'avg_change_pct': 0.2,
-                'update_time': datetime.now(),
-                'data_source': '错误兜底',
-                'error': str(e)
-            }
+            return None
 
 
 # 同步包装函数,方便在非异步代码中使用

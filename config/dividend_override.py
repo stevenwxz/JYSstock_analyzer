@@ -806,18 +806,24 @@ DIVIDEND_OVERRIDE = {
 }
 
 
-def get_manual_dividend_yield(stock_code: str) -> float:
+def get_manual_dividend_per_share(stock_code: str) -> float:
     """
-    获取手动配置的股息率
+    获取手动配置的每股股息（元）
+
+    推荐优先使用本接口：每股股息是相对稳定的基本面数据，
+    股息率应结合实时股价动态计算，避免硬编码的静态股息率随股价变化而过期。
 
     Args:
         stock_code: 股票代码
 
     Returns:
-        股息率(%)，如果没有配置则返回None
+        每股股息(元)，如果没有配置或该值为None则返回None
     """
-    if stock_code in DIVIDEND_OVERRIDE:
-        return DIVIDEND_OVERRIDE[stock_code]['dividend_yield']
+    info = DIVIDEND_OVERRIDE.get(stock_code)
+    if info:
+        dps = info.get('dividend_per_share')
+        if dps is not None and dps >= 0:
+            return dps
     return None
 
 
