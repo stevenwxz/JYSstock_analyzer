@@ -12,13 +12,23 @@ class StockFilter:
         self.config = config or STOCK_FILTER_CONFIG
 
     def calculate_pr_ratio(self, stock_data: Dict) -> float:
-        """计算市赚率PR = PE / (100 * ROE)"""
+        """计算市赚率PR = PE / ROE
+
+        注意：只有当 ROE 来自真实财报（roe_source == 'financial'）时 PR 才有意义。
+        若 ROE 是 PB/PE 反推值，则 PR = PE²/PB 与 PE/PB 完全共线，是伪因子，
+        此时返回 0（不参与评分），避免虚增估值权重。
+        """
         try:
+            # 仅真实财报 ROE 参与 PR 计算，反推 ROE 不参与
+            if stock_data.get('roe_source') != 'financial':
+                return 0
+
             pe = stock_data.get('pe_ratio', 0)
             roe = stock_data.get('roe', 0)
 
             if pe and roe and pe > 0 and roe > 0:
-                pr = pe / (100 * roe)
+                # roe 全项目统一存百分数（如 15 表示 15%），市赚率 PR = PE / ROE
+                pr = pe / roe
                 return round(pr, 3)
             return 0
         except Exception as e:
@@ -30,9 +40,9 @@ class StockFilter:
         score_breakdown = {
             'technical': 0,    # 技术面 (30分): 动量25 + 换手率5
             'valuation': 0,    # 估值 (25分): PE10 + PB5 + PR10
-            'profitability': 0,  # 盈利质量 (30分): ROE15 + 利润增长15
-            'safety': 0,       # 安全性 (10分): PB安全边际5 + 低换手率5
-            'dividend': 0      # 分红 (5分): 股息率
+            'profitability': 0,  # 盈利质量 (35分): ROE20 + 利润增长15
+            'safety': 0,       # 安全性 (10分): 低波动5 + 小回撤5
+            'dividend': 0      # 分红 (已停用): 数据源不可靠，权重并入ROE
         }
 
         try:
@@ -89,17 +99,17 @@ class StockFilter:
             elif pr and 1 <= pr < 1.2:
                 score_breakdown['valuation'] += 3
 
-            # ===== 3. 盈利质量得分 (30分) =====
-            # 3.1 ROE (15分)
+            # ===== 3. 盈利质量得分 (35分) =====
+            # 3.1 ROE (20分)
             roe = stock_data.get('roe', 0)
             if roe and roe > 20:
-                score_breakdown['profitability'] += 15
+                score_breakdown['profitability'] += 20
             elif roe and roe > 15:
-                score_breakdown['profitability'] += 12
+                score_breakdown['profitability'] += 16
             elif roe and roe > 10:
-                score_breakdown['profitability'] += 8
+                score_breakdown['profitability'] += 12
             elif roe and roe > 5:
-                score_breakdown['profitability'] += 4
+                score_breakdown['profitability'] += 6
 
             # 3.2 净利润增长率 (15分)
             profit_growth = stock_data.get('profit_growth', 0)
@@ -113,36 +123,28 @@ class StockFilter:
                 score_breakdown['profitability'] += 4
 
             # ===== 4. 安全性得分 (10分) =====
-            # 4.1 PB安全边际 (5分)
-            pb = stock_data.get('pb_ratio', 0)
-            if pb and 0 < pb < 1.0:
+            # 4.1 低波动率 (5分) - 20日收益率标准差，越低越安全
+            volatility = stock_data.get('volatility_20d', 0)
+            if volatility and volatility < 1.5:
                 score_breakdown['safety'] += 5
-            elif pb and 1.0 <= pb < 1.5:
+            elif volatility and volatility < 2.5:
                 score_breakdown['safety'] += 4
-            elif pb and 1.5 <= pb < 2.5:
+            elif volatility and volatility < 3.5:
                 score_breakdown['safety'] += 2
 
-            # 4.2 低换手率-筹码稳定 (5分)
-            turnover_rate = stock_data.get('turnover_rate', 0)
-            if turnover_rate and 0 < turnover_rate < 2:
+            # 4.2 小回撤 (5分) - 20日最大回撤，越浅越安全
+            max_dd = stock_data.get('max_drawdown_20d', 0)
+            if max_dd is not None and max_dd > -5:
                 score_breakdown['safety'] += 5
-            elif turnover_rate and 2 <= turnover_rate < 5:
-                score_breakdown['safety'] += 3
-            elif turnover_rate and 5 <= turnover_rate < 10:
-                score_breakdown['safety'] += 1
+            elif max_dd is not None and max_dd > -8:
+                score_breakdown['safety'] += 4
+            elif max_dd is not None and max_dd > -12:
+                score_breakdown['safety'] += 2
 
-            # ===== 5. 分红得分 (5分) =====
-            dividend_yield = stock_data.get('dividend_yield', 0)
-            if dividend_yield and dividend_yield > 5:
-                score_breakdown['dividend'] += 5
-            elif dividend_yield and dividend_yield > 3:
-                score_breakdown['dividend'] += 4
-            elif dividend_yield and dividend_yield > 2:
-                score_breakdown['dividend'] += 3
-            elif dividend_yield and dividend_yield > 1:
-                score_breakdown['dividend'] += 2
-            elif dividend_yield and dividend_yield > 0.5:
-                score_breakdown['dividend'] += 1
+            # ===== 5. 分红得分 (已停用) =====
+            # 股息率数据源不可靠（iFinD免费版无股息字段、东财接口被代理拦截、
+            # override 含大量"假设/合理水平"值），停用该维度，权重已并入 ROE。
+            score_breakdown['dividend'] = 0
 
         except Exception as e:
             logger.error(f"计算强势分数失败: {e}")
@@ -248,17 +250,18 @@ class StockFilter:
                 turnover_rate = stock.get('turnover_rate', 0)
                 change_pct = stock.get('change_pct', 0)
 
-                # 排除停牌股票（涨跌幅为0且换手率很小）
-                if change_pct == 0 and (turnover_rate is None or turnover_rate < 0.1):  # 0.1%换手率
+                # 排除停牌股票（涨跌幅为0且换手率很小）。
+                # 换手率未知(None)时无法判断停牌，跳过该过滤（回测数据源不含换手率）。
+                if change_pct == 0 and turnover_rate is not None and turnover_rate < 0.1:
                     continue
 
                 # 排除价格过低的股票
                 if price < self.config['min_price']:
                     continue
 
-                # 排除换手率过小的股票
+                # 排除换手率过小的股票（换手率未知时跳过，避免误杀）
                 min_turnover_rate = self.config.get('min_turnover_rate', 0.5)  # 默认0.5%
-                if turnover_rate is None or turnover_rate < min_turnover_rate:
+                if turnover_rate is not None and turnover_rate < min_turnover_rate:
                     continue
 
                 # 排除跌停股票
@@ -318,37 +321,103 @@ class StockFilter:
             return []
 
     def calculate_offensive_score(self, stock_data: Dict) -> Dict:
-        """进攻模式评分：取消过热惩罚 + 高动量加分 + 成长加分"""
-        base_result = self.calculate_strength_score(stock_data)
-        base_score = base_result['total']
-        base_breakdown = dict(base_result['breakdown'])
+        """进攻模式评分：牛市重设权重（重动量+重成长，轻安全），满分100。
 
+        不再采用「基础分 + 额外加分」的叠加方式（那会造成动量/成长双重计分），
+        而是在模式内直接重设各维度权重，总分与其他模式可比。
+        """
         momentum = stock_data.get('momentum_20d', 0)
-        bonus_momentum = 0
-        if momentum > 15:
-            bonus_momentum += 12
-        elif momentum > 10:
-            bonus_momentum += 8
-        elif momentum > 5:
-            bonus_momentum += 4
+        pe = stock_data.get('pe_ratio', 0)
+        pb = stock_data.get('pb_ratio', 0)
+        roe = stock_data.get('roe', 0)
+        growth = stock_data.get('profit_growth', 0)
+        volatility = stock_data.get('volatility_20d', 0)
+        max_dd = stock_data.get('max_drawdown_20d', 0)
+        turnover_rate = stock_data.get('turnover_rate', 0)
 
-        bonus_growth = 0
-        growth = stock_data.get('profit_growth')
-        if growth and growth > 30:
-            bonus_growth += 5
+        breakdown = {
+            'technical': 0,      # 技术面 (35分): 动量
+            'valuation': 0,      # 估值 (20分): PE10 + PR10
+            'profitability': 0,  # 盈利质量 (35分): ROE15 + 增长20
+            'safety': 0,         # 安全性 (10分): 小回撤
+            'dividend': 0,       # 分红 (已停用)
+        }
 
-        offensive_breakdown = dict(base_breakdown)
-        offensive_breakdown['momentum_bonus'] = bonus_momentum
-        offensive_breakdown['growth_bonus'] = bonus_growth
+        try:
+            # ===== 技术面 (35分)：动量，牛市核心 =====
+            if momentum > 20:
+                breakdown['technical'] += 35
+            elif momentum > 15:
+                breakdown['technical'] += 30
+            elif momentum > 10:
+                breakdown['technical'] += 24
+            elif momentum > 5:
+                breakdown['technical'] += 16
+            elif momentum > 0:
+                breakdown['technical'] += 8
 
-        total = base_score + bonus_momentum + bonus_growth
+            # ===== 估值 (20分)：PE10 + PR10 =====
+            if pe and 0 < pe < 10:
+                breakdown['valuation'] += 10
+            elif pe and 10 <= pe < 20:
+                breakdown['valuation'] += 7
+            elif pe and 20 <= pe < 30:
+                breakdown['valuation'] += 4
+
+            pr = self.calculate_pr_ratio(stock_data)
+            if pr and 0 < pr < 0.8:
+                breakdown['valuation'] += 10
+            elif pr and 0.8 <= pr < 1:
+                breakdown['valuation'] += 7
+            elif pr and 1 <= pr < 1.2:
+                breakdown['valuation'] += 3
+
+            # ===== 盈利质量 (35分)：ROE15 + 增长20 =====
+            if roe and roe > 20:
+                breakdown['profitability'] += 15
+            elif roe and roe > 15:
+                breakdown['profitability'] += 12
+            elif roe and roe > 10:
+                breakdown['profitability'] += 9
+            elif roe and roe > 5:
+                breakdown['profitability'] += 5
+
+            if growth and growth > 40:
+                breakdown['profitability'] += 20
+            elif growth and growth > 30:
+                breakdown['profitability'] += 16
+            elif growth and growth > 20:
+                breakdown['profitability'] += 12
+            elif growth and growth > 10:
+                breakdown['profitability'] += 7
+            elif growth and growth > 0:
+                breakdown['profitability'] += 3
+
+            # ===== 安全性 (10分)：小回撤，牛市适度放宽 =====
+            if max_dd is not None and max_dd > -8:
+                breakdown['safety'] += 10
+            elif max_dd is not None and max_dd > -12:
+                breakdown['safety'] += 6
+            elif max_dd is not None and max_dd > -18:
+                breakdown['safety'] += 3
+
+            # 保留兼容字段（供报告展示），值设为0
+            breakdown['momentum_bonus'] = 0
+            breakdown['growth_bonus'] = 0
+
+        except Exception as e:
+            logger.error(f"计算进攻评分失败: {e}")
+            return {'mode': 'offensive', 'total': 0, 'breakdown': breakdown, 'grade': 'D', 'bonus': 0}
+
+        total = sum(v for k, v in breakdown.items()
+                    if k in ('technical', 'valuation', 'profitability', 'safety', 'dividend'))
         grade = self._get_grade(total)
         return {
             'mode': 'offensive',
             'total': total,
-            'breakdown': offensive_breakdown,
+            'breakdown': breakdown,
             'grade': grade,
-            'bonus': bonus_momentum + bonus_growth,
+            'bonus': 0,
         }
 
     def calculate_ultra_defensive_score(self, stock_data: Dict) -> Dict:
@@ -405,9 +474,7 @@ class StockFilter:
             defensive['momentum_bonus'] = 5
 
         # === 映射到标准显示 key（技术面/估值/盈利/安全/股息），兼容报告输出 ===
-        pe = stock_data.get('pe_ratio', 0)
-        turnover = stock_data.get('turnover_rate', 0)
-        dividend = stock_data.get('dividend_yield', 0)
+        # 股息维度已停用（数据源不可靠），standard['dividend'] 恒为 0，仅保留字段以兼容展示
         standard = {
             'technical': defensive['momentum_bonus'],
             'valuation': defensive['low_pb'],
@@ -415,16 +482,6 @@ class StockFilter:
             'safety': defensive['low_volatility'] + defensive['small_drawdown'],
             'dividend': 0,
         }
-        if dividend and dividend > 5:
-            standard['dividend'] = 5
-        elif dividend and dividend > 3:
-            standard['dividend'] = 4
-        elif dividend and dividend > 2:
-            standard['dividend'] = 3
-        elif dividend and dividend > 1:
-            standard['dividend'] = 2
-        elif dividend and dividend > 0.5:
-            standard['dividend'] = 1
 
         breakdown = {**defensive, **standard}
 
