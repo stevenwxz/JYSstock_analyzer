@@ -19,7 +19,8 @@ from run_backtest import (
     select_stocks_offensive, select_stocks_ultra_defensive
 )
 
-with open('./data/csi300_stocks.json', 'r', encoding='utf-8') as f:
+_stock_file = './data/csi300_stocks.json' if os.path.exists('./data/csi300_stocks.json') else './data/csi800_stocks.json'
+with open(_stock_file, 'r', encoding='utf-8') as f:
     stock_codes = [s['code'] for s in json.load(f)['stocks']]
 
 with open('./cache/backtest/daily_data.pkl', 'rb') as f:

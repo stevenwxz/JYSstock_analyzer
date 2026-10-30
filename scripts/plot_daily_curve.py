@@ -23,9 +23,10 @@ from run_backtest_optimized import (
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
 
-with open('./data/csi300_stocks.json', 'r', encoding='utf-8') as f:
-    csi300 = json.load(f)
-stock_codes = [s['code'] for s in csi300['stocks']]
+_stock_file = './data/csi300_stocks.json' if os.path.exists('./data/csi300_stocks.json') else './data/csi800_stocks.json'
+with open(_stock_file, 'r', encoding='utf-8') as f:
+    csi_data = json.load(f)
+stock_codes = [s['code'] for s in csi_data['stocks']]
 
 start = '2024-01-01'
 end = '2026-05-25'
